@@ -1,0 +1,58 @@
+"use client";
+
+import { useEffect } from "react";
+import { useUser } from "@/app/Context/UserContext";
+
+type FirebaseUser = {
+  newname: string;
+  newemail: string;
+  newpassword?: string;
+  avatar?: string;
+};
+
+export default function DashboardWrapper({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const { setUser } = useUser();
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const email = localStorage.getItem("userEmail");
+      const name = localStorage.getItem("userName");
+
+      if (!email || !name) return;
+
+      try {
+        const response = await fetch(
+          "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app/newusers.json"
+        );
+
+        const data = await response.json();
+        if (!data) return;
+
+        const userEntry = Object.entries(data).find(
+          ([, value]: any) =>
+            value?.newemail === email && value?.newname === name
+        );
+
+        if (userEntry) {
+          const [, userData] = userEntry as [string, FirebaseUser];
+
+          setUser({
+            name: userData.newname,
+            email: userData.newemail,
+            avatar: userData.avatar || "/avatar1.png",
+          });
+        }
+      } catch (error) {
+        console.error("Fehler beim Laden der Benutzerdaten:", error);
+      }
+    };
+
+    fetchUserData();
+  }, [setUser]);
+
+  return <>{children}</>;
+}

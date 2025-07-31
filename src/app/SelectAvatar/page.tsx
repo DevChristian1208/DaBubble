@@ -1,0 +1,130 @@
+"use client";
+
+import Image from "next/image";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useUser } from "../Context/UserContext";
+
+export default function SelectAvatar() {
+  const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
+  const [name, setName] = useState<string>("");
+  const [email, setEmail] = useState<string>("");
+
+  const { setUser } = useUser();
+  const router = useRouter();
+
+  const avatars: string[] = [
+    "/avatar1.png",
+    "/avatar2.png",
+    "/avatar3.png",
+    "/avatar4.png",
+    "/avatar5.png",
+    "/avatar6.png",
+  ];
+
+  const isFormComplete = selectedAvatar !== null && name.trim() !== "";
+
+  useEffect(() => {
+    const storedEmail = localStorage.getItem("userEmail");
+    const storedName = localStorage.getItem("userName");
+
+    if (storedEmail) setEmail(storedEmail);
+    if (storedName) setName(storedName);
+  }, []);
+
+  const redirectToDashboard = () => {
+    if (!isFormComplete) return;
+
+    setUser({
+      name,
+      email,
+      avatar: avatars[selectedAvatar!],
+    });
+
+    router.push("/Dashboard");
+  };
+
+  return (
+    <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
+      <div className="absolute top-6 left-6 flex items-center gap-2">
+        <Image src="/logo.png" alt="Logo" width={30} height={30} />
+        <span className="text-lg font-bold text-gray-800">DABubble</span>
+      </div>
+
+      <div className="absolute bottom-11 w-full flex justify-center gap-6 text-sm text-gray-600 px-4">
+        <a href="#" className="hover:underline">
+          Impressum
+        </a>
+        <a href="#" className="hover:underline">
+          Datenschutz
+        </a>
+      </div>
+
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-md p-8 space-y-6 mt-12 text-center">
+          <h1 className="text-2xl font-semibold text-[#5D5FEF]">
+            Wähle deinen Avatar
+          </h1>
+
+          <div className="w-24 h-24 rounded-full bg-gray-200 mx-auto flex items-center justify-center">
+            <Image
+              src={
+                selectedAvatar !== null
+                  ? avatars[selectedAvatar]
+                  : "/81. Profile.png"
+              }
+              alt="Ausgewählter Avatar"
+              width={80}
+              height={80}
+            />
+          </div>
+
+          <input
+            type="text"
+            placeholder="Gebe deinen Namen ein"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="cursor-pointer w-full max-w-md px-3 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400 transition"
+          />
+
+          <p className="text-sm text-gray-500">Aus der Liste wählen</p>
+
+          <div className="flex justify-center gap-3">
+            {avatars.map((src, index) => (
+              <button
+                key={index}
+                onClick={() => setSelectedAvatar(index)}
+                className={`cursor-pointer w-10 h-10 rounded-full border-2 ${
+                  selectedAvatar === index
+                    ? "border-[#5D5FEF]"
+                    : "border-transparent"
+                }`}
+              >
+                <Image
+                  src={src}
+                  alt={`Avatar ${index + 1}`}
+                  width={40}
+                  height={40}
+                  className="rounded-full"
+                />
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={redirectToDashboard}
+            type="button"
+            disabled={!isFormComplete}
+            className={`cursor-pointer mt-2 w-full py-3 rounded-full text-white text-sm font-semibold ${
+              isFormComplete
+                ? "bg-[#5D5FEF] hover:bg-[#4b4de0]"
+                : "bg-[#c7c8f8] cursor-not-allowed"
+            }`}
+          >
+            Weiter
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
