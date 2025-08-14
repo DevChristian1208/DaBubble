@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "../Context/UserContext";
+import Link from "next/link";
 
 export default function SelectAvatar() {
   const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
@@ -52,17 +53,13 @@ export default function SelectAvatar() {
       </div>
 
       <div className="absolute bottom-11 w-full flex justify-center gap-6 text-sm text-gray-600 px-4">
-        <a href="#" className="hover:underline">
-          Impressum
-        </a>
-        <a href="#" className="hover:underline">
-          Datenschutz
-        </a>
+        <Link href="/ImpressumundDatenschutz/LegalNotice">Impressum</Link>
+        <Link href="/ImpressumundDatenschutz/PrivacyPolicy">Datenschutz</Link>
       </div>
 
       <div className="flex justify-center items-center min-h-screen">
         <div className="w-full max-w-sm bg-white rounded-3xl shadow-md p-8 space-y-6 mt-12 text-center">
-          <h1 className="text-2xl font-semibold text-[#5D5FEF]">
+          <h1 className="text-2xl font-semibold text-[#5D5FEF] placeholder:opacity-100">
             Wähle deinen Avatar
           </h1>
 
@@ -84,7 +81,10 @@ export default function SelectAvatar() {
             placeholder="Gebe deinen Namen ein"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="cursor-pointer w-full max-w-md px-3 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400 transition"
+            className="cursor-pointer w-full max-w-md px-3 py-3 border border-gray-300 rounded-xl shadow-sm
+           bg-white text-base text-gray-900 placeholder-gray-500 placeholder:opacity-100
+           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+           transition appearance-none"
           />
 
           <p className="text-sm text-gray-500">Aus der Liste wählen</p>

@@ -66,12 +66,8 @@ export default function Register() {
       </div>
 
       <div className="absolute bottom-4 w-full flex justify-center gap-6 text-sm text-gray-600 px-4">
-        <a href="#" className="hover:underline">
-          Impressum
-        </a>
-        <a href="#" className="hover:underline">
-          Datenschutz
-        </a>
+        <Link href="/ImpressumundDatenschutz/LegalNotice">Impressum</Link>
+        <Link href="/ImpressumundDatenschutz/PrivacyPolicy">Datenschutz</Link>
       </div>
 
       <div className="flex justify-center items-center min-h-screen">
@@ -93,7 +89,7 @@ export default function Register() {
               type="text"
               required
               placeholder="Name und Nachname"
-              className="bg-transparent flex-1 outline-none text-sm"
+              className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
@@ -105,7 +101,7 @@ export default function Register() {
               type="email"
               required
               placeholder="beispiel@email.com"
-              className="bg-transparent flex-1 outline-none text-sm"
+              className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
               value={email}
               onChange={(e) => setMail(e.target.value)}
             />
@@ -117,13 +113,13 @@ export default function Register() {
               type="password"
               required
               placeholder="Passwort"
-              className="bg-transparent flex-1 outline-none text-sm"
+              className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
 
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
             <input
               type="checkbox"
               id="accept"
@@ -132,11 +128,14 @@ export default function Register() {
               onChange={(e) => setAccept(e.target.checked)}
               className="accent-[#5D5FEF]"
             />
-            <label htmlFor="accept">
+            <label htmlFor="accept" className="leading-snug">
               Ich stimme der{" "}
-              <a href="#" className="text-[#5D5FEF] hover:underline">
+              <Link
+                href="/ImpressumundDatenschutz/PrivacyPolicy"
+                className="text-[#5D5FEF] hover:underline"
+              >
                 Datenschutzerklärung
-              </a>{" "}
+              </Link>{" "}
               zu.
             </label>
           </div>

@@ -18,10 +18,9 @@ export default function DashboardWrapper({
   const { setUser } = useUser();
 
   useEffect(() => {
-    const fetchUserData = async () => {
+    async function fetchUserData() {
       const email = localStorage.getItem("userEmail");
       const name = localStorage.getItem("userName");
-
       if (!email || !name) return;
 
       try {
@@ -49,7 +48,7 @@ export default function DashboardWrapper({
       } catch (error) {
         console.error("Fehler beim Laden der Benutzerdaten:", error);
       }
-    };
+    }
 
     fetchUserData();
   }, [setUser]);
