@@ -1,13 +1,15 @@
 "use client";
 
-import { ReactNode } from "react";
-import { UserProvider } from "@/app/Context/UserContext";
-import { ChannelProvider } from "@/app/Context/ChannelContext";
+import { UserProvider } from "./Context/UserContext";
+import { ChannelProvider } from "./Context/ChannelContext";
+import { DirectProvider } from "./Context/DirectContext";
 
-export default function Providers({ children }: { children: ReactNode }) {
+export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <UserProvider>
-      <ChannelProvider>{children}</ChannelProvider>
+      <ChannelProvider>
+        <DirectProvider>{children}</DirectProvider>
+      </ChannelProvider>
     </UserProvider>
   );
 }

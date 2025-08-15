@@ -1,10 +1,9 @@
-import type { Metadata } from "next";
 import "./globals.css";
 import Providers from "./providers";
 
-export const metadata: Metadata = {
+export const metadata = {
   title: "DABubble",
-  description: "Teamkommunikation wie Slack – gebaut mit Next.js + Firebase",
+  description: "Slack-ähnlicher Chat mit Channels und Direktnachrichten",
 };
 
 export default function RootLayout({
@@ -15,7 +14,6 @@ export default function RootLayout({
   return (
     <html lang="de">
       <body>
-        {/* Global: UserProvider + ChannelProvider für ALLE Seiten */}
         <Providers>{children}</Providers>
       </body>
     </html>

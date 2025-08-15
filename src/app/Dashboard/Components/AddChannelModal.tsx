@@ -22,23 +22,24 @@ export default function AddChannelModal({
       setName("");
       setDesc("");
       onClose();
-    } catch {
-      // Fehler wird bereits im Context gesetzt
-    }
+    } catch {}
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-[872px] min-h-[420px] rounded-[30px] p-[24px] sm:p-[40px] flex flex-col gap-[20px] shadow-xl relative">
+    <div
+      className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+      onClick={(e) => e.currentTarget === e.target && onClose()}
+    >
+      <div className="bg-white w-full max-w-[872px] rounded-2xl sm:rounded-[30px] p-5 sm:p-[24px] md:p-[40px] flex flex-col gap-[16px] sm:gap-[20px] shadow-xl relative">
         <button
           onClick={onClose}
-          className="absolute top-6 right-6 text-2xl font-bold text-gray-500 cursor-pointer"
+          className="absolute top-4 right-4 sm:top-6 sm:right-6 text-2xl font-bold text-gray-500"
           aria-label="Modal schließen"
         >
           ×
         </button>
 
-        <h2 className="text-2xl font-semibold">Channel erstellen</h2>
+        <h2 className="text-xl sm:text-2xl font-semibold">Channel erstellen</h2>
         <p className="text-sm text-gray-600">
           Channels dienen deinem Team zur Kommunikation. Am besten themenbezogen
           – z. B. <span className="font-medium text-[#5D5FEF]">#marketing</span>
@@ -75,7 +76,7 @@ export default function AddChannelModal({
 
         {error && <p className="text-red-600 text-sm">{error}</p>}
 
-        <div className="mt-auto flex justify-end">
+        <div className="mt-2 sm:mt-4 flex justify-end">
           <button
             className="bg-[#5D5FEF] disabled:opacity-60 text-white px-6 py-2 rounded-full font-semibold hover:bg-[#4a4cdb] transition"
             onClick={submit}
