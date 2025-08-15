@@ -5,6 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useUser } from "@/app/Context/UserContext";
+import { db } from "../lib/firebase";
+import { ref, get } from "firebase/database";
+
+type RawUser = {
+  newname: string;
+  newemail: string;
+  newpassword?: string;
+  avatar?: string;
+};
 
 export default function Login() {
   const router = useRouter();
@@ -16,50 +25,33 @@ export default function Login() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!email || !password) {
-      return;
-    }
-
+    if (!email || !password) return;
     setLoading(true);
 
     try {
-      const res = await fetch(
-        "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app/newusers.json"
-      );
-      const data = await res.json();
+      const snap = await get(ref(db, "newusers"));
+      const data = (snap.val() || {}) as Record<string, RawUser>;
 
-      if (!data) {
-        setLoading(false);
-        return;
-      }
-
-      const userEntry = Object.entries(data).find(
-        ([, value]: any) =>
+      const entry = Object.entries(data).find(
+        ([, value]) =>
           value?.newemail === email && value?.newpassword === password
       );
 
-      if (!userEntry) {
+      if (!entry) {
         alert("Benutzer nicht gefunden oder Passwort falsch.");
         setLoading(false);
         return;
       }
 
-      const [, rawUser] = userEntry;
-      const userData = rawUser as {
-        newname: string;
-        newemail: string;
-        avatar?: string;
-      };
-
+      const [, rawUser] = entry;
       setUser({
-        name: userData.newname,
-        email: userData.newemail,
-        avatar: userData.avatar || "/avatar1.png",
+        name: rawUser.newname,
+        email: rawUser.newemail,
+        avatar: rawUser.avatar || "/avatar1.png",
       });
 
-      localStorage.setItem("userEmail", userData.newemail);
-      localStorage.setItem("userName", userData.newname);
+      localStorage.setItem("userEmail", rawUser.newemail);
+      localStorage.setItem("userName", rawUser.newname);
 
       router.push("/Dashboard");
     } catch (err) {
@@ -148,12 +140,7 @@ export default function Login() {
 
             <button
               type="button"
-              className="w-full inline-flex items-center justify-center gap-2
-            rounded-full border border-gray-300 bg-white
-            px-5 py-3 text-base font-medium text-gray-700
-            transition hover:bg-gray-50 active:scale-[0.99]
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5D5FEF]/40
-            appearance-none cursor-pointer"
+              className="w-full inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 bg-white px-5 py-3 text-base font-medium text-gray-700 transition hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5D5FEF]/40 appearance-none cursor-pointer"
             >
               <Image src="/Google.png" alt="Google" width={20} height={20} />
               <span>Anmelden mit Google</span>

@@ -27,7 +27,6 @@ export default function DashboardWrapper({
         const response = await fetch(
           "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app/newusers.json"
         );
-
         const data = await response.json();
         if (!data) return;
 
@@ -38,7 +37,6 @@ export default function DashboardWrapper({
 
         if (userEntry) {
           const [, userData] = userEntry as [string, FirebaseUser];
-
           setUser({
             name: userData.newname,
             email: userData.newemail,

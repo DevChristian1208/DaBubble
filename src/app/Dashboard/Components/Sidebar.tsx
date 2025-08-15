@@ -4,10 +4,12 @@ import Image from "next/image";
 import { useState } from "react";
 import { useUser } from "@/app/Context/UserContext";
 import AddChannelModal from "./AddChannelModal";
+import { useChannel } from "@/app/Context/ChannelContext";
 
 export default function Sidebar() {
   const [showModal, setShowModal] = useState(false);
   const { user } = useUser();
+  const { channels, activeChannelId, setActiveChannelId } = useChannel();
 
   const users = user
     ? [
@@ -51,6 +53,7 @@ export default function Sidebar() {
             </div>
           </div>
 
+          {/* Channels */}
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <Image
@@ -67,21 +70,28 @@ export default function Sidebar() {
               />
               <span className="font-bold text-[16px]">Channels</span>
             </div>
-            <div className="cursor-pointer">
-              <Image
-                src="/19. add.png"
-                alt="plus"
-                width={20}
-                height={20}
-                onClick={() => setShowModal(true)}
-              />
-            </div>
+            <button
+              className="cursor-pointer"
+              onClick={() => setShowModal(true)}
+            >
+              <Image src="/19. add.png" alt="plus" width={20} height={20} />
+            </button>
           </div>
 
           <ul className="space-y-2 mb-6">
-            <li className="bg-[#EEF0FF] text-[#5D5FEF] font-semibold px-3 py-2 rounded-full text-sm cursor-pointer">
-              # Entwicklerteam
-            </li>
+            {channels.map((c) => (
+              <li
+                key={c.id}
+                className={`px-3 py-2 rounded-full text-sm cursor-pointer ${
+                  c.id === activeChannelId
+                    ? "bg-[#EEF0FF] text-[#5D5FEF] font-semibold"
+                    : "text-gray-800 hover:bg-gray-100"
+                }`}
+                onClick={() => setActiveChannelId(c.id)}
+              >
+                #{c.name}
+              </li>
+            ))}
             <li
               className="text-gray-800 text-sm px-1 flex items-center gap-2 cursor-pointer hover:underline"
               onClick={() => setShowModal(true)}
@@ -91,6 +101,7 @@ export default function Sidebar() {
             </li>
           </ul>
 
+          {/* DMs (Platzhalter) */}
           <div className="flex items-center gap-2 mb-2">
             <Image
               src="/arrow_drop_down.png"
@@ -108,7 +119,7 @@ export default function Sidebar() {
           </div>
 
           <ul className="space-y-2">
-            {users.map((user, i) => (
+            {users.map((u, i) => (
               <li
                 key={i}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm cursor-pointer ${
@@ -119,17 +130,15 @@ export default function Sidebar() {
               >
                 <div className="relative">
                   <Image
-                    src={user.avatar}
-                    alt={user.name}
+                    src={u.avatar}
+                    alt={u.name}
                     width={24}
                     height={24}
                     className="rounded-full"
                   />
-                  {user.active && (
-                    <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border border-white" />
-                  )}
+                  <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border border-white" />
                 </div>
-                <span>{user.name}</span>
+                <span>{u.name}</span>
               </li>
             ))}
           </ul>

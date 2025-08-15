@@ -23,6 +23,7 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUserState] = useState<User | null>(null);
+
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
     if (storedUser) {

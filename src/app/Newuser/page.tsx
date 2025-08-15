@@ -14,7 +14,6 @@ export default function Register() {
 
   const URL =
     "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app";
-
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -31,15 +30,11 @@ export default function Register() {
       setLoading(true);
       const response = await fetch(`${URL}/newusers.json`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(userData),
       });
 
-      if (!response.ok) {
-        throw new Error("Fehler beim Registrieren");
-      }
+      if (!response.ok) throw new Error("Fehler beim Registrieren");
 
       localStorage.setItem("userEmail", email);
       localStorage.setItem("userName", name);
