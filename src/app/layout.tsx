@@ -1,3 +1,5 @@
+//Wurzel-Layout der App. Markiert als Client-Komponente und wrappt alle Seiten in UserProvider, ChannelProvider und DirectProvider, damit überall User-, Channel- und DM-Zustand verfügbar sind.
+
 import "./globals.css";
 import Providers from "./providers";
 

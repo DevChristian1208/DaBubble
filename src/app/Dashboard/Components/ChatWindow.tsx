@@ -58,9 +58,6 @@ export default function ChatWindow() {
         if (alive) setMembers([]);
       }
     })();
-    return () => {
-      alive = false;
-    };
   }, [activeChannel?.id, activeChannel?.members]);
 
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
@@ -127,13 +124,13 @@ export default function ChatWindow() {
                 # {activeChannel.name}
               </span>
               {activeChannel.description ? (
-                <span className="hidden xs:inline text-[11px] sm:text-xs md:text-sm text-gray-500">
+                <span className="hidden sm:inline text-[11px] sm:text-xs md:text-sm text-gray-500">
                   – {activeChannel.description}
                 </span>
               ) : null}
             </div>
 
-            {/* Mitglieder-Pill */}
+            {/* Mitglieder-Trigger (Desktop: Avatars + Text) */}
             <button
               onClick={() => setMembersOpen(true)}
               className="hidden md:flex items-center gap-2 bg-gray-100 hover:bg-gray-200 transition px-3 py-2 rounded-full"
@@ -155,6 +152,39 @@ export default function ChatWindow() {
                 {members.length}
                 {moreCount > 0 ? ` (+${moreCount})` : ""} Mitglieder
               </span>
+            </button>
+
+            {/* Mitglieder-Trigger (Mobile: Icon + Count) */}
+            <button
+              onClick={() => setMembersOpen(true)}
+              className="md:hidden inline-flex items-center gap-1 bg-gray-100 hover:bg-gray-200 transition px-3 py-2 rounded-full"
+              aria-label="Mitglieder anzeigen (mobil)"
+              title="Mitglieder"
+            >
+              {/* simple users icon */}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <circle cx="9" cy="8" r="3" stroke="#374151" strokeWidth="2" />
+                <path
+                  d="M4 18c0-2.2 2.4-4 5-4s5 1.8 5 4"
+                  stroke="#374151"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <circle
+                  cx="17"
+                  cy="10"
+                  r="2"
+                  stroke="#374151"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M15 18c0-1.6 1.6-3 3.5-3"
+                  stroke="#374151"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span className="text-xs text-gray-700">{members.length}</span>
             </button>
           </div>
 
