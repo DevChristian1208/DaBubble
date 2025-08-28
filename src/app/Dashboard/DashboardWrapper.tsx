@@ -30,7 +30,6 @@ export default function DashboardWrapper({
         const snap = await get(ref(db, "newusers"));
         const data = (snap.val() ?? {}) as Record<string, FirebaseUser>;
 
-        // Ohne any: wir suchen in den Values (nicht entries)
         const userData = Object.values(data).find(
           (u) => u?.newemail === email && u?.newname === name
         );
@@ -43,8 +42,6 @@ export default function DashboardWrapper({
           });
         }
       } catch (error) {
-        // Optional: Logging
-        // eslint-disable-next-line no-console
         console.error("Fehler beim Laden der Benutzerdaten:", error);
       }
     }

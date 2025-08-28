@@ -38,14 +38,24 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
       <AddChannelModal isOpen={showModal} onClose={() => setShowModal(false)} />
 
       <div className="relative flex items-start h-full">
-        {/* Griffleiste/Placeholder links (optional) */}
-        <div className="hidden lg:flex cursor-pointer items-center justify-center bg-white shadow-md w-[56px] h-[calc(100%-10px)] rounded-tr-[30px] rounded-br-[30px] mt-[5px] z-20">
+        {/* Griffleiste – nutzt onToggle & open, damit Props nicht ungenutzt sind */}
+        <div
+          className="hidden lg:flex cursor-pointer items-center justify-center bg-white shadow-md w-[56px] h-[calc(100%-10px)] rounded-tr-[30px] rounded-br-[30px] mt-[5px] z-20"
+          onClick={onToggle}
+          role="button"
+          aria-pressed={!!open}
+          data-open={open ? "true" : "false"}
+          tabIndex={0}
+        >
           <p className="-rotate-90 text-[13px] font-medium whitespace-nowrap text-center">
             Workspace
           </p>
         </div>
 
-        <aside className="w-[366px] h-full bg-white p-[30px] flex flex-col justify-start shadow-sm rounded-[20px] ml-[0px] z-10">
+        <aside
+          className="w-[366px] h-full bg-white p-[30px] flex flex-col justify-start shadow-sm rounded-[20px] ml-[0px] z-10"
+          data-open={open ? "true" : "false"}
+        >
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
               <Image

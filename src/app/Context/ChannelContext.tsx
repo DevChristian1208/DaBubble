@@ -8,7 +8,7 @@ import {
   useState,
   ReactNode,
 } from "react";
-import { ref, onValue, off, push, set, get } from "firebase/database";
+import { ref, onValue, push, set, get } from "firebase/database";
 import { db } from "@/app/lib/firebase";
 import { useUser } from "./UserContext";
 
@@ -76,11 +76,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         setActiveChannelId(list[0].id);
       }
     });
-    return () => {
-      off(r);
-      // @ts-ignore – onValue liefert kein explizites unsubscribe; off reicht
-      unsubscribe?.();
-    };
+    return () => unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -96,7 +92,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
       return;
     }
     const r = ref(db, `channelMessages/${activeChannelId}`);
-    const unsub = onValue(r, (snap) => {
+    const unsubscribe = onValue(r, (snap) => {
       const val = (snap.val() ?? {}) as Record<string, MessageDB>;
       const list: Message[] = Object.entries(val).map(([id, m]) => ({
         id,
@@ -105,11 +101,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
       list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
       setMessages(list);
     });
-    return () => {
-      off(r);
-      // @ts-ignore
-      unsub?.();
-    };
+    return () => unsubscribe();
   }, [activeChannelId]);
 
   /** Channel anlegen (alle Mitglieder aus /newusers) */
@@ -162,7 +154,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     if (!msg) return;
 
     const msgRef = push(ref(db, `channelMessages/${activeChannelId}`));
-    const payload: MessageDB = {
+    await set(msgRef, {
       text: msg,
       createdAt: Date.now(),
       user: {
@@ -170,8 +162,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         email: user.email,
         avatar: user.avatar || "/avatar1.png",
       },
-    };
-    await set(msgRef, payload);
+    } satisfies MessageDB);
   };
 
   return (

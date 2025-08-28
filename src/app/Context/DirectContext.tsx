@@ -4,11 +4,10 @@ import {
   createContext,
   useContext,
   useEffect,
-  useMemo,
   useState,
   ReactNode,
 } from "react";
-import { ref, onValue, off, push, set, get } from "firebase/database";
+import { ref, onValue, push, set, get } from "firebase/database";
 import { db } from "@/app/lib/firebase";
 import { useUser } from "./UserContext";
 
@@ -46,7 +45,7 @@ type DirectContextType = {
 
 const DirectContext = createContext<DirectContextType | undefined>(undefined);
 
-/** Hilfsfunktionen */
+/** Hilfsfunktion: deterministische Thread-ID */
 function threadIdFor(a: string, b: string) {
   return [a, b].sort().join("__");
 }
@@ -84,7 +83,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     }
     const tid = threadIdFor(myUserKey, activeDMUserId);
     const r = ref(db, `directMessages/${tid}`);
-    const unsub = onValue(r, (snap) => {
+    const unsubscribe = onValue(r, (snap) => {
       const val = (snap.val() ?? {}) as Record<string, DMMessageDB>;
       const list: DMMessage[] = Object.entries(val).map(([id, m]) => ({
         id,
@@ -93,11 +92,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
       setDmMessages(list);
     });
-    return () => {
-      off(r);
-      // @ts-ignore
-      unsub?.();
-    };
+    return () => unsubscribe();
   }, [myUserKey, activeDMUserId]);
 
   /** Aktiven DM-Partner laden (für Header/Avatar) */
