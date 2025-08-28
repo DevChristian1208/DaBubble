@@ -1,19 +1,22 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, ReactNode } from "react";
 import { useUser } from "@/app/Context/UserContext";
+import { db } from "@/app/lib/firebase";
+import { ref, get } from "firebase/database";
 
 type FirebaseUser = {
   newname: string;
   newemail: string;
   newpassword?: string;
   avatar?: string;
+  createdAt?: string;
 };
 
 export default function DashboardWrapper({
   children,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const { setUser } = useUser();
 
@@ -24,19 +27,15 @@ export default function DashboardWrapper({
       if (!email || !name) return;
 
       try {
-        const response = await fetch(
-          "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app/newusers.json"
-        );
-        const data = await response.json();
-        if (!data) return;
+        const snap = await get(ref(db, "newusers"));
+        const data = (snap.val() ?? {}) as Record<string, FirebaseUser>;
 
-        const userEntry = Object.entries(data).find(
-          ([, value]: any) =>
-            value?.newemail === email && value?.newname === name
+        // Ohne any: wir suchen in den Values (nicht entries)
+        const userData = Object.values(data).find(
+          (u) => u?.newemail === email && u?.newname === name
         );
 
-        if (userEntry) {
-          const [, userData] = userEntry as [string, FirebaseUser];
+        if (userData) {
           setUser({
             name: userData.newname,
             email: userData.newemail,
@@ -44,6 +43,8 @@ export default function DashboardWrapper({
           });
         }
       } catch (error) {
+        // Optional: Logging
+        // eslint-disable-next-line no-console
         console.error("Fehler beim Laden der Benutzerdaten:", error);
       }
     }

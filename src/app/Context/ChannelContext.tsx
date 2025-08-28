@@ -9,9 +9,10 @@ import {
   ReactNode,
 } from "react";
 import { ref, onValue, off, push, set, get } from "firebase/database";
-import { db } from "../lib/firebase";
+import { db } from "@/app/lib/firebase";
 import { useUser } from "./UserContext";
 
+/** Datentypen */
 export type Channel = {
   id: string;
   name: string;
@@ -20,12 +21,22 @@ export type Channel = {
   createdByEmail?: string;
   members?: Record<string, true>;
 };
+type ChannelDB = Omit<Channel, "id">;
 
 export type Message = {
   id: string;
   text: string;
   createdAt?: number;
   user: { name: string; email: string; avatar?: string };
+};
+type MessageDB = Omit<Message, "id">;
+
+type NewUser = {
+  newname: string;
+  newemail: string;
+  newpassword?: string;
+  avatar?: string;
+  createdAt?: string;
 };
 
 type ChannelContextType = {
@@ -50,12 +61,12 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Realtime: Channels
+  /** Channels in Echtzeit abonnieren */
   useEffect(() => {
     const r = ref(db, "channels");
-    onValue(r, (snap) => {
-      const val = snap.val() || {};
-      const list: Channel[] = Object.entries(val).map(([id, c]: any) => ({
+    const unsubscribe = onValue(r, (snap) => {
+      const val = (snap.val() ?? {}) as Record<string, ChannelDB>;
+      const list: Channel[] = Object.entries(val).map(([id, c]) => ({
         id,
         ...c,
       }));
@@ -67,6 +78,8 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       off(r);
+      // @ts-ignore – onValue liefert kein explizites unsubscribe; off reicht
+      unsubscribe?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -76,16 +89,16 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     [channels, activeChannelId]
   );
 
-  // Realtime: Messages für aktiven Channel
+  /** Messages des aktiven Channels abonnieren */
   useEffect(() => {
     if (!activeChannelId) {
       setMessages([]);
       return;
     }
     const r = ref(db, `channelMessages/${activeChannelId}`);
-    onValue(r, (snap) => {
-      const val = snap.val() || {};
-      const list: Message[] = Object.entries(val).map(([id, m]: any) => ({
+    const unsub = onValue(r, (snap) => {
+      const val = (snap.val() ?? {}) as Record<string, MessageDB>;
+      const list: Message[] = Object.entries(val).map(([id, m]) => ({
         id,
         ...m,
       }));
@@ -94,10 +107,12 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       off(r);
+      // @ts-ignore
+      unsub?.();
     };
   }, [activeChannelId]);
 
-  // Channel anlegen (alle Mitglieder aus /newusers)
+  /** Channel anlegen (alle Mitglieder aus /newusers) */
   const createChannel = async (name: string, description?: string) => {
     setError(null);
     setLoading(true);
@@ -110,11 +125,15 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
       if (!clean)
         throw new Error("Bitte einen gültigen Channel-Namen angeben.");
 
+      // Alle User laden
       const usersSnap = await get(ref(db, "newusers"));
-      const usersVal = usersSnap.val() || {};
+      const usersVal = (usersSnap.val() ?? {}) as Record<string, NewUser>;
       const members: Record<string, true> = {};
-      Object.keys(usersVal).forEach((userKey) => (members[userKey] = true));
+      Object.keys(usersVal).forEach((userKey) => {
+        members[userKey] = true;
+      });
 
+      // Channel pushen
       const chRef = push(ref(db, "channels"));
       await set(chRef, {
         name: clean,
@@ -122,16 +141,20 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         createdAt: Date.now(),
         createdByEmail: user?.email || "",
         members,
-      });
-    } catch (e: any) {
-      setError(e.message || "Channel konnte nicht erstellt werden.");
+      } satisfies ChannelDB);
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : "Channel konnte nicht erstellt werden.";
+      setError(msg);
       throw e;
     } finally {
       setLoading(false);
     }
   };
 
-  // Nachricht senden
+  /** Nachricht in aktiven Channel senden */
   const sendMessage = async (text: string) => {
     if (!activeChannelId) throw new Error("Kein Channel aktiv.");
     if (!user) throw new Error("Nicht eingeloggt.");
@@ -139,7 +162,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     if (!msg) return;
 
     const msgRef = push(ref(db, `channelMessages/${activeChannelId}`));
-    await set(msgRef, {
+    const payload: MessageDB = {
       text: msg,
       createdAt: Date.now(),
       user: {
@@ -147,7 +170,8 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         email: user.email,
         avatar: user.avatar || "/avatar1.png",
       },
-    });
+    };
+    await set(msgRef, payload);
   };
 
   return (

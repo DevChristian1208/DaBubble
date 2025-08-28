@@ -8,209 +8,156 @@ import {
   useState,
   ReactNode,
 } from "react";
-import { ref, onValue, off, get, push, set } from "firebase/database";
-import { db } from "../lib/firebase";
+import { ref, onValue, off, push, set, get } from "firebase/database";
+import { db } from "@/app/lib/firebase";
 import { useUser } from "./UserContext";
 
-export type RtdbUser = {
+/** Typen */
+type NewUser = {
   newname: string;
   newemail: string;
+  newpassword?: string;
+  avatar?: string;
+  createdAt?: string;
+};
+
+export type DMUser = {
+  id: string; // key aus /newusers
+  name: string;
+  email?: string;
   avatar?: string;
 };
 
-export type DirectMessage = {
+export type DMMessage = {
   id: string;
   text: string;
   createdAt?: number;
-  user: { name: string; email: string; avatar?: string };
+  from: { name: string; email: string; avatar?: string };
 };
+type DMMessageDB = Omit<DMMessage, "id">;
 
 type DirectContextType = {
-  // Nutzer
-  allUsers: Array<{ id: string; name: string; email: string; avatar?: string }>;
-  currentUserId: string | null;
-
-  // Aktiver DM (Zielnutzer)
   activeDMUserId: string | null;
-  activeDMUser: {
-    id: string;
-    name: string;
-    email: string;
-    avatar?: string;
-  } | null;
-
-  // DM-Nachrichten des aktiven Gesprächs
-  dmMessages: DirectMessage[];
-
-  // Steuerung
-  setActiveDMUserId: (userId: string | null) => void;
-  startDMWith: (userId: string) => void;
+  activeDMUser: DMUser | null;
+  dmMessages: DMMessage[];
+  startDMWith: (userId: string) => Promise<void>;
   sendDirectMessage: (text: string) => Promise<void>;
-
-  // (optional) Liste meiner DM-Kontakte (aus vorhandenen Konversationen)
-  myDMContacts: Array<{
-    id: string;
-    name: string;
-    email: string;
-    avatar?: string;
-  }>;
 };
 
 const DirectContext = createContext<DirectContextType | undefined>(undefined);
 
-function convIdFor(a: string, b: string) {
+/** Hilfsfunktionen */
+function threadIdFor(a: string, b: string) {
   return [a, b].sort().join("__");
 }
 
 export function DirectProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
-
-  const [allUsers, setAllUsers] = useState<
-    Array<{ id: string; name: string; email: string; avatar?: string }>
-  >([]);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [myUserKey, setMyUserKey] = useState<string | null>(null);
 
   const [activeDMUserId, setActiveDMUserId] = useState<string | null>(null);
-  const [dmMessages, setDmMessages] = useState<DirectMessage[]>([]);
+  const [activeDMUser, setActiveDMUser] = useState<DMUser | null>(null);
+  const [dmMessages, setDmMessages] = useState<DMMessage[]>([]);
 
-  const [myDMContacts, setMyDMContacts] = useState<
-    Array<{ id: string; name: string; email: string; avatar?: string }>
-  >([]);
-
-  // Alle User laden + die eigene UserId herausfinden
+  /** Hole meinen User-Key aus /newusers (per Email) */
   useEffect(() => {
-    const r = ref(db, "newusers");
-    onValue(r, (snap) => {
-      const val = snap.val() || {};
-      const list = Object.entries(val).map(([id, u]: [string, any]) => ({
-        id,
-        name: u?.newname ?? "Unbekannt",
-        email: u?.newemail ?? "",
-        avatar: u?.avatar || "/avatar1.png",
-      }));
-      setAllUsers(list);
-
-      // eigene ID via E-Mail finden
-      if (user?.email) {
-        const me = list.find((x) => x.email === user.email);
-        setCurrentUserId(me?.id || null);
-      } else {
-        setCurrentUserId(null);
-      }
-    });
-
-    return () => off(r);
+    if (!user?.email) {
+      setMyUserKey(null);
+      return;
+    }
+    const run = async () => {
+      const snap = await get(ref(db, "newusers"));
+      const all = (snap.val() ?? {}) as Record<string, NewUser>;
+      const hit = Object.entries(all).find(
+        ([, u]) => u?.newemail === user.email
+      );
+      setMyUserKey(hit ? hit[0] : null);
+    };
+    void run();
   }, [user?.email]);
 
-  // Aktive DM-Messages abonnieren
+  /** DM-Nachrichten des aktuellen Threads abonnieren */
   useEffect(() => {
-    if (!currentUserId || !activeDMUserId) {
+    if (!myUserKey || !activeDMUserId) {
       setDmMessages([]);
       return;
     }
-    const id = convIdFor(currentUserId, activeDMUserId);
-    const r = ref(db, `directMessages/${id}`);
-    onValue(r, (snap) => {
-      const val = snap.val() || {};
-      const list: DirectMessage[] = Object.entries(val).map(
-        ([mid, m]: any) => ({
-          id: mid,
-          ...m,
-        })
-      );
+    const tid = threadIdFor(myUserKey, activeDMUserId);
+    const r = ref(db, `directMessages/${tid}`);
+    const unsub = onValue(r, (snap) => {
+      const val = (snap.val() ?? {}) as Record<string, DMMessageDB>;
+      const list: DMMessage[] = Object.entries(val).map(([id, m]) => ({
+        id,
+        ...m,
+      }));
       list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
       setDmMessages(list);
     });
-    return () => off(r);
-  }, [currentUserId, activeDMUserId]);
+    return () => {
+      off(r);
+      // @ts-ignore
+      unsub?.();
+    };
+  }, [myUserKey, activeDMUserId]);
 
-  // Kontakte (Konversationen, an denen ich beteiligt bin)
+  /** Aktiven DM-Partner laden (für Header/Avatar) */
   useEffect(() => {
-    if (!currentUserId) {
-      setMyDMContacts([]);
-      return;
-    }
-    const r = ref(db, "directConversations");
-    onValue(r, (snap) => {
-      const val = snap.val() || {};
-      const myPartnerIds = new Set<string>();
-      Object.values<any>(val).forEach((conv: any) => {
-        if (conv?.participants?.[currentUserId]) {
-          const otherId = Object.keys(conv.participants).find(
-            (pid) => pid !== currentUserId
-          );
-          if (otherId) myPartnerIds.add(otherId);
-        }
+    const run = async () => {
+      if (!activeDMUserId) {
+        setActiveDMUser(null);
+        return;
+      }
+      const snap = await get(ref(db, `newusers/${activeDMUserId}`));
+      const doc = (snap.val() ?? null) as NewUser | null;
+      if (!doc) {
+        setActiveDMUser(null);
+        return;
+      }
+      setActiveDMUser({
+        id: activeDMUserId,
+        name: doc.newname ?? "Unbekannt",
+        email: doc.newemail,
+        avatar: doc.avatar || "/avatar1.png",
       });
-      const contacts = Array.from(myPartnerIds)
-        .map((id) => allUsers.find((u) => u.id === id))
-        .filter(Boolean) as Array<{
-        id: string;
-        name: string;
-        email: string;
-        avatar?: string;
-      }>;
-      setMyDMContacts(contacts);
-    });
-    return () => off(r);
-  }, [currentUserId, allUsers]);
+    };
+    void run();
+  }, [activeDMUserId]);
 
-  const activeDMUser = useMemo(
-    () =>
-      activeDMUserId
-        ? allUsers.find((u) => u.id === activeDMUserId) || null
-        : null,
-    [activeDMUserId, allUsers]
-  );
-
-  const startDMWith = (userId: string) => {
-    if (!userId) return;
+  /** Öffne/erstelle Thread mit userId */
+  const startDMWith = async (userId: string) => {
     setActiveDMUserId(userId);
   };
 
+  /** Nachricht in aktuellen DM-Thread senden */
   const sendDirectMessage = async (text: string) => {
-    const msg = text.trim();
-    if (!msg || !currentUserId || !activeDMUserId || !user) return;
+    if (!user) throw new Error("Nicht eingeloggt.");
+    if (!myUserKey || !activeDMUserId)
+      throw new Error("Kein DM-Partner aktiv.");
+    const body = text.trim();
+    if (!body) return;
 
-    const id = convIdFor(currentUserId, activeDMUserId);
-
-    // Conversation-Meta sicherstellen
-    const convRef = ref(db, `directConversations/${id}`);
-    const convSnap = await get(convRef);
-    if (!convSnap.exists()) {
-      await set(convRef, {
-        createdAt: Date.now(),
-        participants: {
-          [currentUserId]: true,
-          [activeDMUserId]: true,
-        },
-      });
-    }
-
-    const msgRef = push(ref(db, `directMessages/${id}`));
-    await set(msgRef, {
-      text: msg,
+    const tid = threadIdFor(myUserKey, activeDMUserId);
+    const msgRef = push(ref(db, `directMessages/${tid}`));
+    const payload: DMMessageDB = {
+      text: body,
       createdAt: Date.now(),
-      user: {
+      from: {
         name: user.name,
         email: user.email,
         avatar: user.avatar || "/avatar1.png",
       },
-    });
+    };
+    await set(msgRef, payload);
   };
 
   return (
     <DirectContext.Provider
       value={{
-        allUsers,
-        currentUserId,
         activeDMUserId,
         activeDMUser,
         dmMessages,
-        setActiveDMUserId,
         startDMWith,
         sendDirectMessage,
-        myDMContacts,
       }}
     >
       {children}

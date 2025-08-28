@@ -1,16 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { ref, get } from "firebase/database";
 import { db } from "@/app/lib/firebase";
-import { useChannel } from "@/app/Context/ChannelContext";
+import {
+  useChannel,
+  type Message as ChannelMessage,
+} from "@/app/Context/ChannelContext";
 import { useDirect } from "@/app/Context/DirectContext";
 import MembersModal from "./MembersModal";
 import MessageList from "./MessageList";
 import MessageComposer from "./MessageComposer";
 
 type Member = { id: string; name: string; email?: string; avatar?: string };
+type NewUser = {
+  newname: string;
+  newemail: string;
+  newpassword?: string;
+  avatar?: string;
+  createdAt?: string;
+};
 
 export default function ChatWindow() {
   const {
@@ -30,38 +40,61 @@ export default function ChatWindow() {
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  // Mitglieder eines Channels laden
+  /** Mitglieder eines Channels laden */
+  const aliveRef = useRef(true);
   useEffect(() => {
+    aliveRef.current = true;
     if (!activeChannel?.members) {
       setMembers([]);
-      return;
+      return () => {
+        aliveRef.current = false;
+      };
     }
-    let alive = true;
+
     (async () => {
       try {
         const snap = await get(ref(db, "newusers"));
-        const all = snap.val() || {};
+        const all = (snap.val() ?? {}) as Record<string, NewUser>;
         const arr: Member[] = Object.entries(all)
           .filter(
-            ([id]) =>
-              activeChannel.members && activeChannel.members[id as string]
+            ([id]) => !!activeChannel.members && !!activeChannel.members[id]
           )
-          .map(([id, u]: any) => ({
+          .map(([id, u]) => ({
             id,
             name: u?.newname ?? "Unbekannt",
             email: u?.newemail,
             avatar: u?.avatar || "/avatar1.png",
           }));
-        if (alive) setMembers(arr);
+        if (aliveRef.current) setMembers(arr);
       } catch (e) {
         console.error(e);
-        if (alive) setMembers([]);
+        if (aliveRef.current) setMembers([]);
       }
     })();
+
+    return () => {
+      aliveRef.current = false;
+    };
   }, [activeChannel?.id, activeChannel?.members]);
 
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
   const moreCount = Math.max(0, members.length - topAvatars.length);
+
+  /** DM-Nachrichten ins ChannelMessage-Format mappen (user statt from) */
+  const dmMessagesNormalized: ChannelMessage[] = useMemo(
+    () =>
+      dmMessages.map((m) => ({
+        id: m.id,
+        text: m.text,
+        createdAt: m.createdAt,
+        user: {
+          name: m.from.name,
+          email: m.from.email,
+          avatar: m.from.avatar,
+        },
+      })),
+    [dmMessages]
+  );
 
   // ========= DIRECT MESSAGE =========
   if (activeDMUserId && activeDMUser) {
@@ -93,7 +126,7 @@ export default function ChatWindow() {
         {/* Nachrichten (scrollbar) */}
         <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="mx-auto w-full max-w-3xl">
-            <MessageList messages={dmMessages} />
+            <MessageList messages={dmMessagesNormalized} />
           </div>
         </div>
 
@@ -130,7 +163,7 @@ export default function ChatWindow() {
               ) : null}
             </div>
 
-            {/* Mitglieder-Trigger (Desktop: Avatars + Text) */}
+            {/* Mitglieder-Pills (Desktop) */}
             <button
               onClick={() => setMembersOpen(true)}
               className="hidden md:flex items-center gap-2 bg-gray-100 hover:bg-gray-200 transition px-3 py-2 rounded-full"
@@ -154,14 +187,13 @@ export default function ChatWindow() {
               </span>
             </button>
 
-            {/* Mitglieder-Trigger (Mobile: Icon + Count) */}
+            {/* Mobile: Icon + Anzahl */}
             <button
               onClick={() => setMembersOpen(true)}
               className="md:hidden inline-flex items-center gap-1 bg-gray-100 hover:bg-gray-200 transition px-3 py-2 rounded-full"
               aria-label="Mitglieder anzeigen (mobil)"
               title="Mitglieder"
             >
-              {/* simple users icon */}
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <circle cx="9" cy="8" r="3" stroke="#374151" strokeWidth="2" />
                 <path
