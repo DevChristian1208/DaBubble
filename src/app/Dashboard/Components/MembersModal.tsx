@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { useMemo, useState } from "react";
 import Image from "next/image";
+import { useUser } from "@/app/Context/UserContext";
 
 type Member = { id: string; name: string; email?: string; avatar?: string };
 
@@ -19,31 +19,53 @@ export default function MembersModal({
   channelName: string;
   onStartDM: (userId: string) => void;
 }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // Hooks immer zuerst
+  const { user } = useUser();
+  const [query, setQuery] = useState("");
 
-  if (!isOpen || !mounted) return null;
+  const filtered = useMemo(() => {
+    if (!isOpen) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return members;
+    return members.filter((m) => {
+      const name = m.name?.toLowerCase() ?? "";
+      const mail = m.email?.toLowerCase() ?? "";
+      return name.includes(q) || mail.includes(q);
+    });
+  }, [isOpen, members, query]);
 
-  const modal = (
+  if (!isOpen) return null;
+
+  return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4"
+      className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-[1px] flex items-center justify-center p-3 sm:p-4"
       onClick={(e) => e.currentTarget === e.target && onClose()}
-      role="dialog"
       aria-modal="true"
+      role="dialog"
+      aria-label="Mitgliederliste"
     >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-
-      {/* Card */}
-      <div className="relative z-[101] bg-white w-full max-w-md sm:max-w-lg rounded-2xl sm:rounded-[20px] shadow-2xl overflow-hidden">
+      <div className="bg-white w-full max-w-md sm:max-w-lg rounded-2xl sm:rounded-[20px] shadow-[0_20px_60px_rgba(0,0,0,0.18)] overflow-hidden">
+        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h3 className="text-lg sm:text-xl font-semibold">Mitglieder</h3>
+          <div className="min-w-0">
+            <h3 className="text-lg sm:text-xl font-semibold truncate">
+              Mitglieder
+            </h3>
+            <p className="text-xs text-gray-500 truncate">#{channelName}</p>
+          </div>
           <button
+            type="button"
             onClick={onClose}
-            className="w-9 h-9 inline-flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200"
+            className="w-9 h-9 inline-flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition"
             aria-label="Schließen"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            >
               <path
                 d="M6 6l12 12M18 6L6 18"
                 stroke="#111827"
@@ -54,53 +76,108 @@ export default function MembersModal({
           </button>
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto px-5 py-3 space-y-2">
-          {members.map((m) => (
-            <div key={m.id} className="flex items-center justify-between py-2">
-              <div className="flex items-center gap-3">
-                <Image
-                  src={m.avatar || "/avatar1.png"}
-                  alt={m.name}
-                  width={40}
-                  height={40}
-                  className="rounded-full"
-                />
-                <div>
-                  <div className="font-medium text-sm sm:text-base">
-                    {m.name}
-                  </div>
-                  {m.email && (
-                    <div className="text-[11px] sm:text-xs text-gray-500">
-                      {m.email}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <button
-                onClick={() => onStartDM(m.id)}
-                className="text-[#5D5FEF] text-sm font-medium hover:underline"
+        {/* Suche */}
+        <div className="px-5 pt-3 pb-2">
+          <div className="relative">
+            <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
               >
-                Nachricht
-              </button>
+                <path
+                  d="M11 4a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm9 17-4.35-4.35"
+                  stroke="#6B7280"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
             </div>
-          ))}
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Mitglieder suchen …"
+              className="w-full pl-10 pr-3 py-2 rounded-full border border-gray-300 outline-none text-sm focus:ring-2 focus:ring-[#5D5FEF]/30"
+              autoFocus
+            />
+          </div>
+          <div className="mt-2 text-xs text-gray-500">
+            {filtered.length} Ergebnis{filtered.length === 1 ? "" : "se"}
+          </div>
         </div>
 
-        <div className="px-5 py-4 border-t text-xs sm:text-sm text-gray-500">
-          #{channelName}
-          <div className="mt-3 flex justify-end">
-            <button
-              onClick={onClose}
-              className="bg-[#5D5FEF] text-white px-5 py-2 rounded-full font-semibold hover:bg-[#4a4cdb]"
-            >
-              Schließen
-            </button>
-          </div>
+        {/* Liste */}
+        <div className="max-h-[60vh] sm:max-h-[65vh] overflow-y-auto px-3 sm:px-5 py-3 space-y-2">
+          {filtered.map((m) => {
+            const isSelf = user?.email && m.email && user.email === m.email;
+
+            return (
+              <div
+                key={m.id}
+                className="flex items-center justify-between gap-2 sm:gap-3 px-2 py-2 rounded-xl hover:bg-gray-50"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <Image
+                    src={m.avatar || "/avatar1.png"}
+                    alt={m.name}
+                    width={40}
+                    height={40}
+                    className="rounded-full"
+                  />
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">
+                      {m.name}{" "}
+                      {isSelf && (
+                        <span className="text-xs text-gray-400">(Du)</span>
+                      )}
+                    </div>
+                    {m.email && (
+                      <div className="text-xs text-gray-500 truncate">
+                        {m.email}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isSelf) onStartDM(m.id);
+                  }}
+                  disabled={Boolean(isSelf)}
+                  aria-disabled={isSelf ? true : false}
+                  className={`shrink-0 inline-flex items-center justify-center rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                    isSelf
+                      ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                      : "text-white bg-[#5D5FEF] hover:bg-[#4a4cdb]"
+                  }`}
+                >
+                  Nachricht
+                </button>
+              </div>
+            );
+          })}
+
+          {filtered.length === 0 && (
+            <div className="text-center text-sm text-gray-500 py-6">
+              Keine Ergebnisse für „{query}“.
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-5 py-2 rounded-full font-semibold transition"
+          >
+            Schließen
+          </button>
         </div>
       </div>
     </div>
   );
-
-  return createPortal(modal, document.body);
 }

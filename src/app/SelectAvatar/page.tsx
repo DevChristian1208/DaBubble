@@ -3,13 +3,13 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useUser } from "../Context/UserContext";
 import Link from "next/link";
+import { useUser } from "../Context/UserContext";
 
 export default function SelectAvatar() {
   const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
-  const [name, setName] = useState<string>("");
-  const [email, setEmail] = useState<string>("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
 
   const { setUser } = useUser();
   const router = useRouter();
@@ -26,23 +26,68 @@ export default function SelectAvatar() {
   const isFormComplete = selectedAvatar !== null && name.trim() !== "";
 
   useEffect(() => {
-    const storedEmail = localStorage.getItem("userEmail");
-    const storedName = localStorage.getItem("userName");
-
-    if (storedEmail) setEmail(storedEmail);
-    if (storedName) setName(storedName);
+    const pendingRaw = localStorage.getItem("pendingRegistration");
+    if (pendingRaw) {
+      try {
+        const pending = JSON.parse(pendingRaw) as {
+          name: string;
+          email: string;
+          password: string;
+        };
+        setName(pending.name || "");
+        setEmail(pending.email || "");
+        return;
+      } catch {}
+    }
+    const storedEmail = localStorage.getItem("userEmail") || "";
+    const storedName = localStorage.getItem("userName") || "";
+    setEmail(storedEmail);
+    setName(storedName);
   }, []);
 
-  const redirectToDashboard = () => {
+  const redirectToDashboard = async () => {
     if (!isFormComplete) return;
 
-    setUser({
-      name,
-      email,
-      avatar: avatars[selectedAvatar!],
-    });
+    const pendingRaw = localStorage.getItem("pendingRegistration");
+    const password = pendingRaw
+      ? (JSON.parse(pendingRaw).password as string)
+      : "";
 
-    router.push("/Dashboard");
+    const selected = avatars[selectedAvatar!];
+    const URL =
+      "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app";
+
+    try {
+      const payload = {
+        newname: name,
+        newemail: email,
+        newpassword: password,
+        avatar: selected,
+        createdAt: new Date().toISOString(),
+      };
+
+      const res = await fetch(`${URL}/newusers.json`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Fehler beim Speichern des Avatars.");
+      const data = (await res.json()) as { name: string }; // { name: "<firebaseKey>" }
+      const userId = data.name;
+
+      setUser({ id: userId, name, email, avatar: selected });
+
+      localStorage.setItem("userId", userId);
+      localStorage.setItem("userEmail", email);
+      localStorage.setItem("userName", name);
+      localStorage.setItem("userAvatar", selected);
+      localStorage.removeItem("pendingRegistration");
+
+      router.push("/Dashboard");
+    } catch (err) {
+      console.error(err);
+      alert("Speichern des Avatars fehlgeschlagen. Bitte erneut versuchen.");
+    }
   };
 
   return (

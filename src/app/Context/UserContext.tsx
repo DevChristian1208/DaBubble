@@ -8,7 +8,8 @@ import {
   ReactNode,
 } from "react";
 
-type User = {
+export type User = {
+  id: string; // RTDB-Key in /newusers
   name: string;
   email: string;
   avatar?: string;
@@ -25,7 +26,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUserState] = useState<User | null>(null);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
+    const storedUser =
+      typeof window !== "undefined" ? localStorage.getItem("user") : null;
     if (storedUser) {
       try {
         setUserState(JSON.parse(storedUser));
@@ -35,13 +37,12 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  const setUser = (user: User | null) => {
-    if (user) {
-      localStorage.setItem("user", JSON.stringify(user));
-    } else {
-      localStorage.removeItem("user");
+  const setUser = (val: User | null) => {
+    if (typeof window !== "undefined") {
+      if (val) localStorage.setItem("user", JSON.stringify(val));
+      else localStorage.removeItem("user");
     }
-    setUserState(user);
+    setUserState(val);
   };
 
   return (
@@ -52,9 +53,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 };
 
 export const useUser = () => {
-  const context = useContext(UserContext);
-  if (!context) {
-    throw new Error("useUser must be used within a UserProvider");
-  }
-  return context;
+  const ctx = useContext(UserContext);
+  if (!ctx) throw new Error("useUser must be used within a UserProvider");
+  return ctx;
 };

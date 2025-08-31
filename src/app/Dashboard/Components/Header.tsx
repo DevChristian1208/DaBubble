@@ -2,6 +2,8 @@
 
 import Image from "next/image";
 import { useUser } from "@/app/Context/UserContext";
+import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
 
 export default function Header({
   onToggleSidebar,
@@ -9,25 +11,40 @@ export default function Header({
   onToggleSidebar: () => void;
 }) {
   const { user } = useUser();
+  const [dropDown, setDropDown] = useState(false);
+  const router = useRouter();
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const handleLogout = () => {
+    setDropDown(false);
+    router.push("/Login");
+  };
+
+  const handleProfile = () => {
+    setDropDown(false);
+    router.push("/Profile");
+  };
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setDropDown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
     <header className="w-full h-[64px] md:h-[70px] px-3 md:px-10 bg-[#E8E9FF] flex items-center justify-between">
-      {/* Links: Burger + Logo */}
       <div className="flex items-center gap-3 min-w-[120px]">
         <button
           type="button"
           onClick={onToggleSidebar}
-          className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-full bg-white shadow hover:bg-gray-50 active:scale-[0.98]"
+          className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-full bg-white shadow hover:bg-gray-50 active:scale-[0.98] cursor-pointer"
           aria-label="Menü öffnen"
         >
-          {/* Burger-Icon (inline) */}
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden
-          >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
             <path
               d="M4 7h16M4 12h16M4 17h16"
               stroke="#6b7280"
@@ -38,14 +55,13 @@ export default function Header({
         </button>
 
         <div className="flex items-center gap-2">
-          <Image src="/logo.png" alt="Logo" width={32} height={32} />
+          <Image src="/Logo.png" alt="Logo" width={32} height={32} />
           <span className="text-base md:text-lg font-bold text-gray-800">
             DABubble
           </span>
         </div>
       </div>
 
-      {/* Mitte: Suche (nur ab md sichtbar) */}
       <div className="hidden md:flex flex-1 justify-center">
         <div className="relative w-[480px]">
           <input
@@ -63,8 +79,10 @@ export default function Header({
         </div>
       </div>
 
-      {/* Rechts: User */}
-      <div className="flex items-center gap-2 font-medium text-sm min-w-[120px] justify-end">
+      <div
+        className="flex items-center gap-2 font-medium text-sm min-w-[120px] justify-end relative"
+        ref={menuRef}
+      >
         <span className="hidden sm:inline">{user?.name}</span>
         <Image
           src={user?.avatar || "/avatar1.png"}
@@ -73,6 +91,31 @@ export default function Header({
           height={32}
           className="rounded-full"
         />
+        <Image
+          src={"/keyboard_arrow_down.png"}
+          alt="arrow"
+          width={22}
+          height={22}
+          className="cursor-pointer"
+          onClick={() => setDropDown((prev) => !prev)}
+        />
+
+        {dropDown && (
+          <div className="absolute right-0 top-12 w-56 rounded-2xl border bg-white p-6 shadow-2xl flex flex-col gap-6">
+            <button
+              onClick={handleProfile}
+              className="text-2xl font-medium text-left hover:opacity-80 cursor-pointer"
+            >
+              Profil
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-2xl font-medium text-left hover:opacity-80 cursor-pointer"
+            >
+              Log out
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

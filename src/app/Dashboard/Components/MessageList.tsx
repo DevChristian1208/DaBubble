@@ -1,110 +1,140 @@
 "use client";
 
 import Image from "next/image";
-import { Message } from "@/app/Context/ChannelContext";
 import { useUser } from "@/app/Context/UserContext";
-import { useEffect, useState } from "react";
 
-// kleine Helper-Funktion für Klassen
-function cls(...parts: Array<string | false | null | undefined>) {
-  return parts.filter(Boolean).join(" ");
+export type Message = {
+  id: string;
+  text: string;
+  createdAt?: number;
+  user: { name: string; email: string; avatar?: string };
+};
+
+// prüft, ob die Nachricht vom eingeloggten User stammt
+function isOwn(targetEmail: string, meEmail?: string | null) {
+  return !!meEmail && targetEmail === meEmail;
+}
+
+type ParsedAttachment =
+  | { kind: "image"; url: string; name: string }
+  | { kind: "file"; url: string; name: string };
+
+function parseAttachment(text: string): ParsedAttachment | null {
+  if (!text.startsWith("ATTACH::")) return null;
+  const parts = text.split("::");
+  // ["ATTACH", "image"|"file", "url", "encodedName?"]
+  if (parts.length < 3) return null;
+  const kind = parts[1] === "image" ? "image" : "file";
+  const url = parts[2];
+  const name = parts[3]
+    ? decodeURIComponent(parts[3])
+    : kind === "image"
+    ? "Bild"
+    : "Datei";
+  return { kind, url, name };
+}
+
+function formatTime(ts?: number) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return d.toLocaleString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default function MessageList({ messages }: { messages: Message[] }) {
-  const { user } = useUser();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const { user: me } = useUser();
 
   return (
-    <ul className="space-y-4 sm:space-y-5">
+    <div className="flex flex-col gap-3">
       {messages.map((m) => {
-        const isMe = user && m.user.email === user.email;
-
-        const time =
-          mounted && m.createdAt
-            ? new Intl.DateTimeFormat("de-DE", {
-                day: "2-digit",
-                month: "2-digit",
-                hour: "2-digit",
-                minute: "2-digit",
-              }).format(new Date(m.createdAt))
-            : "";
+        const mine = isOwn(m.user.email, me?.email);
+        const att = parseAttachment(m.text);
 
         return (
-          <li
+          <div
             key={m.id}
-            className={cls(
-              "flex w-full",
-              isMe ? "justify-end" : "justify-start"
-            )}
+            className={`flex items-start gap-3 ${
+              mine ? "justify-end" : "justify-start"
+            }`}
           >
-            {/* Container pro Nachricht: Avatar + Inhalt */}
-            <div
-              className={cls(
-                "flex items-start gap-2 sm:gap-3 max-w-[75%]",
-                isMe ? "flex-row-reverse" : "flex-row"
-              )}
-            >
-              {/* Avatar */}
+            {!mine && (
               <Image
                 src={m.user.avatar || "/avatar1.png"}
                 alt={m.user.name}
-                width={28}
-                height={28}
-                className="rounded-full mt-[2px] shrink-0"
+                width={32}
+                height={32}
+                className="rounded-full mt-1"
               />
+            )}
 
-              {/* Inhalt */}
-              <div className={cls("min-w-0", isMe && "text-right")}>
-                {/* Kopfzeile */}
-                <div
-                  className={cls(
-                    "flex items-center gap-2",
-                    isMe ? "justify-end" : ""
-                  )}
-                >
-                  <span className="font-semibold text-[13px] sm:text-sm leading-none">
+            <div className="max-w-[75%]">
+              {/* Kopfzeile */}
+              <div
+                className={`text-[12px] mb-1 ${
+                  mine ? "text-right text-gray-400" : "text-gray-500"
+                }`}
+              >
+                {!mine && (
+                  <span className="font-semibold text-gray-700">
                     {m.user.name}
                   </span>
-                  <span
-                    className="text-[11px] sm:text-xs text-gray-500 leading-none"
-                    suppressHydrationWarning
-                  >
-                    {time}
-                  </span>
-                  {isMe && (
-                    <span className="text-[10px] sm:text-[11px] text-[#8B5CF6] leading-none">
-                      (Du)
-                    </span>
-                  )}
-                </div>
+                )}{" "}
+                <span className="ml-1">{formatTime(m.createdAt)}</span>
+              </div>
 
-                {/* Bubble */}
-                <div
-                  className={cls(
-                    "mt-1 inline-block rounded-2xl px-3 py-2 md:px-4 md:py-2.5",
-                    isMe
-                      ? "bg-[#7163FF] text-white"
-                      : "bg-gray-100 text-gray-900"
-                  )}
-                >
-                  <p
-                    className={cls(
-                      "whitespace-pre-wrap text-[13px] md:text-sm leading-5 md:leading-6",
-                      isMe && "text-right"
-                    )}
-                  >
-                    {m.text}
-                  </p>
-                </div>
+              {/* Inhalt */}
+              <div
+                className={`rounded-2xl px-4 py-2 ${
+                  mine
+                    ? "bg-[#5D5FEF] text-white rounded-br-md"
+                    : "bg-gray-100 text-gray-900 rounded-bl-md"
+                }`}
+              >
+                {att ? (
+                  att.kind === "image" ? (
+                    <a href={att.url} target="_blank" rel="noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={att.url}
+                        alt={att.name}
+                        className="rounded-lg max-h-[320px] max-w-full object-contain"
+                      />
+                    </a>
+                  ) : (
+                    <a
+                      href={att.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`underline ${
+                        mine ? "text-white" : "text-blue-600"
+                      }`}
+                    >
+                      📎 {att.name}
+                    </a>
+                  )
+                ) : (
+                  <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                )}
               </div>
             </div>
-          </li>
+
+            {mine && (
+              <Image
+                src={m.user.avatar || "/avatar1.png"}
+                alt={m.user.name}
+                width={32}
+                height={32}
+                className="rounded-full mt-1"
+              />
+            )}
+          </div>
         );
       })}
-    </ul>
+    </div>
   );
 }

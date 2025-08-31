@@ -12,30 +12,15 @@ export default function Register() {
   const [accept, setAccept] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const URL =
-    "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app";
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    const userData = {
-      newname: name,
-      newemail: email,
-      newpassword: password,
-      createdAt: new Date().toISOString(),
-    };
+    setLoading(true);
 
     try {
-      setLoading(true);
-      const response = await fetch(`${URL}/newusers.json`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(userData),
-      });
-
-      if (!response.ok) throw new Error("Fehler beim Registrieren");
-
+      const pending = { name, email, password };
+      localStorage.setItem("pendingRegistration", JSON.stringify(pending));
       localStorage.setItem("userEmail", email);
       localStorage.setItem("userName", name);
 
@@ -45,9 +30,9 @@ export default function Register() {
       setAccept(false);
 
       router.push("/SelectAvatar");
-    } catch (error) {
-      console.error("Registrierungsfehler:", error);
-      alert("Fehler bei der Registrierung.");
+    } catch (err) {
+      console.error("Fehler beim Vormerken:", err);
+      alert("Es ist ein Fehler aufgetreten. Bitte später nochmal versuchen.");
     } finally {
       setLoading(false);
     }

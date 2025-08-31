@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useUser } from "@/app/Context/UserContext";
-import { db } from "../lib/firebase";
+import { db } from "@/app/lib/firebase";
 import { ref, get } from "firebase/database";
 
 type RawUser = {
@@ -43,8 +43,10 @@ export default function Login() {
         return;
       }
 
-      const [, rawUser] = entry;
+      const [id, rawUser] = entry;
+
       setUser({
+        id,
         name: rawUser.newname,
         email: rawUser.newemail,
         avatar: rawUser.avatar || "/avatar1.png",

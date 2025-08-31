@@ -1,9 +1,8 @@
-//Wurzel-Layout der App. Markiert als Client-Komponente und wrappt alle Seiten in UserProvider, ChannelProvider und DirectProvider, damit überall User-, Channel- und DM-Zustand verfügbar sind.
-
+import type { Metadata } from "next";
 import "./globals.css";
 import Providers from "./providers";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "DABubble",
   description: "Slack-ähnlicher Chat mit Channels und Direktnachrichten",
 };
@@ -15,7 +14,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="de">
-      <body>
+      <body className="min-h-screen bg-[#E8E9FF]">
         <Providers>{children}</Providers>
       </body>
     </html>
