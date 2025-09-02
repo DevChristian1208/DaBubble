@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useMemo, useState, KeyboardEvent } from "react";
 import { useUser } from "@/app/Context/UserContext";
 import { useChannel } from "@/app/Context/ChannelContext";
 import { useDirect } from "@/app/Context/DirectContext";
@@ -28,9 +28,9 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
   const { user } = useUser();
   const { channels, activeChannelId, setActiveChannelId } = useChannel();
 
-  // Direct-Context: Threads in Sidebar anzeigen + DM starten
+  // Direct-Context
   const direct = useDirect();
-  const { dmThreads, startDMWith, activeDMUserId } = direct;
+  const { dmThreads = [], startDMWith, activeDMUserId, clearDM } = direct;
 
   const users: SidebarUserItem[] = useMemo(() => {
     if (!user) return [];
@@ -55,11 +55,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
 
   const handleSelectChannel = (id: string) => {
     setActiveChannelId(id);
-    try {
-      direct.clearDM?.();
-    } catch {
-      /* noop */
-    }
+    clearDM?.();
     closeOnMobile();
   };
 
@@ -68,11 +64,22 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
     closeOnMobile();
   };
 
+  const onHeaderKey = (
+    e: KeyboardEvent<HTMLDivElement>,
+    toggle: () => void
+  ) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  };
+
   return (
     <>
       <AddChannelModal isOpen={showModal} onClose={() => setShowModal(false)} />
 
       <div className="relative flex items-stretch h-full">
+        {/* Workspace-Kante */}
         <button
           type="button"
           onClick={handleWorkspaceToggle}
@@ -85,6 +92,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
           </span>
         </button>
 
+        {/* Sidebar-Panel */}
         <aside
           className="h-full bg-white flex flex-col justify-start shadow-sm rounded-[20px] overflow-hidden z-10 transition-[width,padding] duration-300 ease-in-out"
           style={{ width: open ? 366 : 0, padding: open ? 30 : 0 }}
@@ -92,6 +100,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
         >
           {open && (
             <>
+              {/* Header */}
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
                   <Image
@@ -115,10 +124,15 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 </button>
               </div>
 
-              <button
-                type="button"
+              {/* Channels – Header (div statt button, damit kein button-in-button) */}
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => setChannelsOpen((v) => !v)}
-                className="w-full flex items-center justify-between mb-2"
+                onKeyDown={(e) =>
+                  onHeaderKey(e, () => setChannelsOpen((v) => !v))
+                }
+                className="w-full flex items-center justify-between mb-2 cursor-pointer select-none"
                 aria-expanded={channelsOpen}
                 aria-controls="sidebar-channels"
               >
@@ -136,6 +150,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                   <span className="font-bold text-[16px]">Channels</span>
                 </div>
 
+                {/* eigener Button bleibt Button */}
                 <button
                   type="button"
                   onClick={(e) => {
@@ -147,8 +162,9 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 >
                   <Image src="/19. add.png" alt="plus" width={20} height={20} />
                 </button>
-              </button>
+              </div>
 
+              {/* Channel-Liste */}
               <ul
                 id="sidebar-channels"
                 className={`space-y-2 mb-6 transition-[max-height,opacity] duration-300 ease-in-out ${
@@ -192,10 +208,13 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 </li>
               </ul>
 
-              <button
-                type="button"
+              {/* Direktnachrichten – Header (div statt button) */}
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => setDmsOpen((v) => !v)}
-                className="w-full flex items-center gap-2 mb-2"
+                onKeyDown={(e) => onHeaderKey(e, () => setDmsOpen((v) => !v))}
+                className="w-full flex items-center gap-2 mb-2 cursor-pointer select-none"
                 aria-expanded={dmsOpen}
                 aria-controls="sidebar-dms"
               >
@@ -215,7 +234,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                   height={20}
                 />
                 <span className="font-bold text-[16px]">Direktnachrichten</span>
-              </button>
+              </div>
 
               {/* DM-Liste */}
               <ul
@@ -225,7 +244,6 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 }`}
                 style={{ maxHeight: dmsOpen ? 500 : 0, overflow: "hidden" }}
               >
-                {/* Echte DM-Threads (NEU) */}
                 {dmThreads.map((t) => (
                   <li key={t.convId}>
                     <button
@@ -251,6 +269,33 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                         <div className="truncate">{t.otherName}</div>
                       </div>
                     </button>
+                  </li>
+                ))}
+
+                {/* Optional: eigener Eintrag „Du“ */}
+                {users.map((u, i) => (
+                  <li key={`${u.id ?? u.name}-${i}`}>
+                    <div
+                      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
+                        i === 0
+                          ? "bg-[#EEF0FF] text-[#5D5FEF]"
+                          : "hover:bg-gray-100 text-gray-800"
+                      }`}
+                    >
+                      <div className="relative">
+                        <Image
+                          src={u.avatar}
+                          alt={u.name}
+                          width={24}
+                          height={24}
+                          className="rounded-full"
+                        />
+                        {u.active && (
+                          <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border border-white" />
+                        )}
+                      </div>
+                      <span>{u.name}</span>
+                    </div>
                   </li>
                 ))}
               </ul>

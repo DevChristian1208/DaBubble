@@ -5,13 +5,40 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useUser } from "@/app/Context/UserContext";
-import { db } from "@/app/lib/firebase";
-import { ref, get } from "firebase/database";
+
+// ---- PW-Helpers (gleich wie oben) ----
+async function deriveHash(password: string, saltB64: string) {
+  const enc = new TextEncoder();
+  const bin = atob(saltB64);
+  const saltBytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) saltBytes[i] = bin.charCodeAt(i);
+
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits", "deriveKey"]
+  );
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: saltBytes, iterations: 100_000, hash: "SHA-256" },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
+  );
+  const raw = await crypto.subtle.exportKey("raw", key);
+  const hashB64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
+  return hashB64;
+}
+// --------------------------------------
 
 type RawUser = {
   newname: string;
   newemail: string;
-  newpassword?: string;
+  newpassword?: string; // Altbestand (Klartext)
+  passwordHash?: string; // Neuer Weg
+  passwordSalt?: string;
   avatar?: string;
 };
 
@@ -23,37 +50,51 @@ export default function Login() {
   const [password, setPassword] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
 
+  const RTDB =
+    "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app";
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
     setLoading(true);
 
     try {
-      const snap = await get(ref(db, "newusers"));
-      const data = (snap.val() || {}) as Record<string, RawUser>;
+      const res = await fetch(`${RTDB}/newusers.json`);
+      if (!res.ok) throw new Error("Fetch failed");
+      const data = (await res.json()) as Record<string, RawUser> | null;
+      const entries = Object.entries(data || {});
 
-      const entry = Object.entries(data).find(
-        ([, value]) =>
-          value?.newemail === email && value?.newpassword === password
-      );
+      // 1) passenden User per E-Mail finden
+      const found = entries.find(([, v]) => v?.newemail === email);
+      if (!found) {
+        alert("Benutzer nicht gefunden oder Passwort falsch.");
+        setLoading(false);
+        return;
+      }
+      const [id, rawUser] = found;
 
-      if (!entry) {
+      // 2) Passwort prüfen (neu: hash/salt; fallback: Klartext-Feld)
+      let ok = false;
+      if (rawUser.passwordHash && rawUser.passwordSalt) {
+        const h = await deriveHash(password, rawUser.passwordSalt);
+        ok = h === rawUser.passwordHash;
+      } else if (rawUser.newpassword) {
+        ok = rawUser.newpassword === password;
+      }
+
+      if (!ok) {
         alert("Benutzer nicht gefunden oder Passwort falsch.");
         setLoading(false);
         return;
       }
 
-      const [id, rawUser] = entry;
-
+      // 3) In-Memory-Login
       setUser({
         id,
         name: rawUser.newname,
         email: rawUser.newemail,
         avatar: rawUser.avatar || "/avatar1.png",
       });
-
-      localStorage.setItem("userEmail", rawUser.newemail);
-      localStorage.setItem("userName", rawUser.newname);
 
       router.push("/Dashboard");
     } catch (err) {
@@ -64,9 +105,7 @@ export default function Login() {
     }
   };
 
-  const redirecttoAvatar = () => {
-    router.push("/SelectAvatar");
-  };
+  const redirecttoAvatar = () => router.push("/SelectAvatar");
 
   return (
     <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
@@ -143,6 +182,9 @@ export default function Login() {
             <button
               type="button"
               className="w-full inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 bg-white px-5 py-3 text-base font-medium text-gray-700 transition hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5D5FEF]/40 appearance-none cursor-pointer"
+              onClick={() =>
+                alert("Google-Login ist noch nicht implementiert.")
+              }
             >
               <Image src="/Google.png" alt="Google" width={20} height={20} />
               <span>Anmelden mit Google</span>

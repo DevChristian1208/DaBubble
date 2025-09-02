@@ -1,9 +1,14 @@
+// src/app/Newuser/page.tsx
 "use client";
 
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { auth, db } from "@/app/lib/firebase";
+import { signInAnonymously } from "firebase/auth";
+import { ref, set, serverTimestamp } from "firebase/database";
+import { deriveHash, randomToken } from "@/app/lib/crypto";
 
 export default function Register() {
   const [name, setName] = useState("");
@@ -14,40 +19,78 @@ export default function Register() {
 
   const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (loading) return;
+    if (!accept) return;
+
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const rawPassword = password;
+
+    if (!trimmedName || !trimmedEmail || !rawPassword) return;
+
     setLoading(true);
-
     try {
-      const pending = { name, email, password };
-      localStorage.setItem("pendingRegistration", JSON.stringify(pending));
-      localStorage.setItem("userEmail", email);
-      localStorage.setItem("userName", name);
+      // 1) Anonymous Auth versuchen (für striktere RTDB-Regeln nötig)
+      try {
+        await signInAnonymously(auth);
+      } catch (err) {
+        // Für den Testbetrieb (offene RTDB-Regeln) einfach weiter machen.
+        // In Produktion: Anonymous Auth in Firebase Console aktivieren.
+        console.warn(
+          "Anonymous Auth nicht aktiviert – fahre für Tests ohne Login fort.",
+          err
+        );
+      }
 
-      setName("");
-      setMail("");
-      setPassword("");
-      setAccept(false);
+      // 2) Passwort clientseitig hashen (kein Klartext in DB/Netz/Storage)
+      const { hashB64: passwordHash, saltB64: passwordSalt } = await deriveHash(
+        rawPassword
+      );
 
-      router.push("/SelectAvatar");
+      // 3) Token erstellen & pending-Objekt in RTDB speichern
+      const token = randomToken(24);
+      const pendingRef = ref(db, `pendingRegs/${token}`);
+
+      await set(pendingRef, {
+        name: trimmedName,
+        email: trimmedEmail,
+        passwordHash,
+        passwordSalt,
+        createdAt: serverTimestamp(),
+      });
+
+      // 4) Weiter zur Avatar-Auswahl – Token in der URL, kein Local/SessionStorage nötig
+      router.push(`/SelectAvatar?token=${encodeURIComponent(token)}`);
     } catch (err) {
-      console.error("Fehler beim Vormerken:", err);
-      alert("Es ist ein Fehler aufgetreten. Bitte später nochmal versuchen.");
+      console.error(err);
+      alert("Fehler beim Anlegen der Registrierung");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
+    <div className="min-h-screen bg-[#E8E9FF] px-4 relative overflow-x-hidden">
       <div className="absolute top-6 left-6 flex items-center gap-2">
         <Image src="/logo.png" alt="Logo" width={30} height={30} />
         <span className="text-lg font-bold text-gray-800">DABubble</span>
       </div>
 
-      <div className="absolute bottom-4 w-full flex justify-center gap-6 text-sm text-gray-600 px-4">
-        <Link href="/ImpressumundDatenschutz/LegalNotice">Impressum</Link>
-        <Link href="/ImpressumundDatenschutz/PrivacyPolicy">Datenschutz</Link>
+      <div className="absolute bottom-4 inset-x-0 flex justify-center gap-6 text-sm text-gray-600">
+        <Link
+          href="/ImpressumundDatenschutz/LegalNotice"
+          className="hover:underline"
+        >
+          Impressum
+        </Link>
+        <Link
+          href="/ImpressumundDatenschutz/PrivacyPolicy"
+          className="hover:underline"
+        >
+          Datenschutz
+        </Link>
       </div>
 
       <div className="flex justify-center items-center min-h-screen">
@@ -69,9 +112,10 @@ export default function Register() {
               type="text"
               required
               placeholder="Name und Nachname"
-              className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
+              className="bg-transparent flex-1 outline-none md:text-sm text-gray-700 placeholder:opacity-100"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
             />
           </div>
 
@@ -81,9 +125,10 @@ export default function Register() {
               type="email"
               required
               placeholder="beispiel@email.com"
-              className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
+              className="bg-transparent flex-1 outline-none md:text-sm text-gray-700 placeholder:opacity-100"
               value={email}
               onChange={(e) => setMail(e.target.value)}
+              autoComplete="email"
             />
           </div>
 
@@ -93,13 +138,14 @@ export default function Register() {
               type="password"
               required
               placeholder="Passwort"
-              className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
+              className="bg-transparent flex-1 outline-none md:text-sm text-gray-700 placeholder:opacity-100"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
             />
           </div>
 
-          <div className="flex items-center gap-2 text-sm text-gray-500">
+          <div className="flex items-center gap-2 text-sm text-gray-600">
             <input
               type="checkbox"
               id="accept"
@@ -122,7 +168,9 @@ export default function Register() {
 
           <button
             type="submit"
-            className={`w-full py-3 rounded-full font-semibold text-white ${
+            disabled={loading}
+            aria-busy={loading}
+            className={`w-full py-3 rounded-full font-semibold text-white transition ${
               loading
                 ? "bg-[#c5c8f5] cursor-not-allowed"
                 : "bg-[#5D5FEF] hover:bg-[#4b4de0]"

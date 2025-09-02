@@ -9,9 +9,17 @@ import { useDirect } from "@/app/Context/DirectContext";
 import MembersModal from "./MembersModal";
 import MessageList from "./MessageList";
 import MessageComposer from "./MessageComposer";
-import type { Message as ChannelMessage } from "@/app/Context/ChannelContext";
 
 type Member = { id: string; name: string; email?: string; avatar?: string };
+
+// Optional: passt zum erwarteten Format von MessageList
+type NormalizedMsg = {
+  id: string;
+  text: string;
+  createdAt: number | string;
+  user: { name: string; email?: string; avatar?: string };
+  isMine?: boolean;
+};
 
 export default function ChatWindow() {
   const {
@@ -31,6 +39,7 @@ export default function ChatWindow() {
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
+  // Mitglieder eines Channels laden
   useEffect(() => {
     if (!activeChannel?.members) {
       setMembers([]);
@@ -66,25 +75,42 @@ export default function ChatWindow() {
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
   const moreCount = Math.max(0, members.length - topAvatars.length);
 
-  const dmMessagesNormalized: ChannelMessage[] = useMemo(
-    () =>
-      dmMessages.map((m) => ({
-        id: m.id,
-        text: m.text,
-        createdAt: m.createdAt,
-        user: {
-          name: m.from.name,
-          email: m.from.email,
-          avatar: m.from.avatar,
-        },
-      })),
-    [dmMessages]
-  );
+  // ---- DM: defensiv normalisieren (handles m.from fehlend / legacy m.user) ----
+  const dmMessagesNormalized: NormalizedMsg[] = useMemo(() => {
+    return dmMessages.map((m: any) => {
+      const from = m?.from ?? m?.user ?? null;
+      const senderName = from?.name ?? activeDMUser?.name ?? "Unbekannt";
+      const senderEmail = from?.email ?? activeDMUser?.email ?? "";
+      const senderAvatar =
+        from?.avatar ?? activeDMUser?.avatar ?? "/avatar1.png";
 
-  // ===== Direktchat =====
+      // ist die Nachricht von der Gegenseite oder von mir? (ohne UserContext fallbacken wir auf E-Mail-Vergleich, wenn vorhanden)
+      const isMine =
+        typeof from?.email === "string" &&
+        typeof activeDMUser?.email === "string"
+          ? from.email !== activeDMUser.email
+          : undefined;
+
+      return {
+        id: String(m?.id ?? m?.createdAt ?? Math.random()),
+        text: String(m?.text ?? ""),
+        createdAt: m?.createdAt ?? Date.now(),
+        user: { name: senderName, email: senderEmail, avatar: senderAvatar },
+        isMine,
+      };
+    });
+  }, [
+    dmMessages,
+    activeDMUser?.name,
+    activeDMUser?.email,
+    activeDMUser?.avatar,
+  ]);
+
+  // ========== DIRECT MESSAGE ==========
   if (activeDMUserId && activeDMUser) {
     return (
       <div className="flex-1 min-h-0 h-full bg-white rounded-[20px] shadow-sm flex flex-col overflow-hidden">
+        {/* Header */}
         <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
           <div className="flex items-center gap-3">
             <Image
@@ -107,12 +133,14 @@ export default function ChatWindow() {
           </div>
         </div>
 
+        {/* Nachrichten (scrollbar) */}
         <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="mx-auto w-full max-w-3xl">
-            <MessageList messages={dmMessagesNormalized} />
+            <MessageList messages={dmMessagesNormalized as any} />
           </div>
         </div>
 
+        {/* Composer */}
         <div className="px-2 sm:px-4 md:px-6 pb-4 sm:pb-5 pt-2 border-t border-gray-200">
           <div className="mx-auto w-full max-w-3xl">
             <MessageComposer
@@ -127,7 +155,7 @@ export default function ChatWindow() {
     );
   }
 
-  // ===== Channel =====
+  // ========== CHANNEL ==========
   if (activeChannel) {
     return (
       <>
@@ -145,9 +173,10 @@ export default function ChatWindow() {
               ) : null}
             </div>
 
+            {/* Mitglieder-Pill */}
             <button
               onClick={() => setMembersOpen(true)}
-              className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 transition px-3 py-2 rounded-full"
+              className="hidden md:flex items-center gap-2 bg-gray-100 hover:bg-gray-200 transition px-3 py-2 rounded-full"
               aria-label="Mitglieder anzeigen"
             >
               <div className="flex -space-x-2">
@@ -156,28 +185,27 @@ export default function ChatWindow() {
                     key={m.id}
                     src={m.avatar || "/avatar1.png"}
                     alt={m.name}
-                    width={28}
-                    height={28}
+                    width={24}
+                    height={24}
                     className="rounded-full border-2 border-white"
                   />
                 ))}
               </div>
-              <span className="hidden sm:inline text-sm text-gray-700">
+              <span className="text-xs md:text-sm text-gray-700">
                 {members.length}
                 {moreCount > 0 ? ` (+${moreCount})` : ""} Mitglieder
-              </span>
-              <span className="sm:hidden text-sm text-gray-700">
-                Mitglieder
               </span>
             </button>
           </div>
 
+          {/* Nachrichten (scrollbar) */}
           <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
             <div className="mx-auto w-full max-w-3xl">
-              <MessageList messages={channelMessages} />
+              <MessageList messages={channelMessages as any} />
             </div>
           </div>
 
+          {/* Composer */}
           <div className="px-2 sm:px-4 md:px-6 pb-4 sm:pb-5 pt-2 border-t border-gray-200">
             <div className="mx-auto w-full max-w-3xl">
               <MessageComposer
@@ -190,6 +218,7 @@ export default function ChatWindow() {
           </div>
         </div>
 
+        {/* Mitglieder-Modal */}
         <MembersModal
           isOpen={membersOpen}
           onClose={() => setMembersOpen(false)}
@@ -204,6 +233,7 @@ export default function ChatWindow() {
     );
   }
 
+  // ========== Platzhalter =========
   return (
     <div className="flex-1 h-full bg-white rounded-[20px] p-8 sm:p-10 shadow-sm flex items-center justify-center text-center overflow-hidden">
       <div>

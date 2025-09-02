@@ -1,5 +1,7 @@
+// src/app/lib/firebase.ts
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase } from "firebase/database";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
@@ -13,13 +15,11 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-// Runtime-Check (hilft beim Debuggen von .env)
+// (optional) Runtime-Check
 const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
 if (!databaseURL) {
-  throw new Error(
-    "NEXT_PUBLIC_FIREBASE_DATABASE_URL ist nicht gesetzt. " +
-      "Trage die RTDB-URL in .env.local ein und starte den Dev-Server neu."
-  );
+  throw new Error("NEXT_PUBLIC_FIREBASE_DATABASE_URL fehlt (.env.local).");
 }
 
 export const db = getDatabase(app, databaseURL);
+export const auth = getAuth(app);

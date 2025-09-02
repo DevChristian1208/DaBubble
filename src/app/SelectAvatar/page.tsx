@@ -1,94 +1,96 @@
+// src/app/SelectAvatar/page.tsx
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useUser } from "../Context/UserContext";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { db } from "@/app/lib/firebase";
+import { ref, get, push, remove, serverTimestamp } from "firebase/database";
+import { useUser } from "@/app/Context/UserContext";
+
+type Pending = {
+  name: string;
+  email: string;
+  passwordHash: string;
+  passwordSalt: string;
+  createdAt?: unknown;
+};
 
 export default function SelectAvatar() {
   const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const { setUser } = useUser();
+  const avatars = useMemo(
+    () => [
+      "/avatar1.png",
+      "/avatar2.png",
+      "/avatar3.png",
+      "/avatar4.png",
+      "/avatar5.png",
+      "/avatar6.png",
+    ],
+    []
+  );
+
+  const params = useSearchParams();
+  const token = params.get("token") || "";
   const router = useRouter();
-
-  const avatars: string[] = [
-    "/avatar1.png",
-    "/avatar2.png",
-    "/avatar3.png",
-    "/avatar4.png",
-    "/avatar5.png",
-    "/avatar6.png",
-  ];
-
-  const isFormComplete = selectedAvatar !== null && name.trim() !== "";
+  const { setUser } = useUser();
 
   useEffect(() => {
-    const pendingRaw = localStorage.getItem("pendingRegistration");
-    if (pendingRaw) {
-      try {
-        const pending = JSON.parse(pendingRaw) as {
-          name: string;
-          email: string;
-          password: string;
-        };
-        setName(pending.name || "");
-        setEmail(pending.email || "");
-        return;
-      } catch {}
-    }
-    const storedEmail = localStorage.getItem("userEmail") || "";
-    const storedName = localStorage.getItem("userName") || "";
-    setEmail(storedEmail);
-    setName(storedName);
-  }, []);
+    let alive = true;
+    (async () => {
+      if (!token) return;
+      const snap = await get(ref(db, `pendingRegs/${token}`));
+      const val = snap.val() as Pending | null;
+      if (alive) setPending(val);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [token]);
 
-  const redirectToDashboard = async () => {
-    if (!isFormComplete) return;
+  const isFormComplete = selectedAvatar !== null && !!pending;
 
-    const pendingRaw = localStorage.getItem("pendingRegistration");
-    const password = pendingRaw
-      ? (JSON.parse(pendingRaw).password as string)
-      : "";
-
-    const selected = avatars[selectedAvatar!];
-    const URL =
-      "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app";
-
+  async function handleContinue() {
+    if (!pending || selectedAvatar === null || loading) return;
+    setLoading(true);
     try {
-      const payload = {
-        newname: name,
-        newemail: email,
-        newpassword: password,
-        avatar: selected,
-        createdAt: new Date().toISOString(),
+      // finalen User anlegen
+      const userRef = ref(db, "newusers");
+      const avatar = avatars[selectedAvatar];
+      const toSave = {
+        newname: pending.name,
+        newemail: pending.email,
+        passwordHash: pending.passwordHash,
+        passwordSalt: pending.passwordSalt,
+        avatar,
+        createdAt: serverTimestamp(),
       };
+      const pushed = await push(userRef, toSave);
+      const userId = pushed.key!;
 
-      const res = await fetch(`${URL}/newusers.json`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      // optional: pending löschen
+      await remove(ref(db, `pendingRegs/${token}`));
+
+      // UserContext befüllen (kein LocalStorage nötig)
+      setUser({
+        id: userId,
+        name: pending.name,
+        email: pending.email,
+        avatar,
       });
-      if (!res.ok) throw new Error("Fehler beim Speichern des Avatars.");
-      const data = (await res.json()) as { name: string }; // { name: "<firebaseKey>" }
-      const userId = data.name;
-
-      setUser({ id: userId, name, email, avatar: selected });
-
-      localStorage.setItem("userId", userId);
-      localStorage.setItem("userEmail", email);
-      localStorage.setItem("userName", name);
-      localStorage.setItem("userAvatar", selected);
-      localStorage.removeItem("pendingRegistration");
 
       router.push("/Dashboard");
-    } catch (err) {
-      console.error(err);
+    } catch (e) {
+      console.error(e);
       alert("Speichern des Avatars fehlgeschlagen. Bitte erneut versuchen.");
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
   return (
     <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
@@ -104,9 +106,15 @@ export default function SelectAvatar() {
 
       <div className="flex justify-center items-center min-h-screen">
         <div className="w-full max-w-sm bg-white rounded-3xl shadow-md p-8 space-y-6 mt-12 text-center">
-          <h1 className="text-2xl font-semibold text-[#5D5FEF] placeholder:opacity-100">
+          <h1 className="text-2xl font-semibold text-[#5D5FEF]">
             Wähle deinen Avatar
           </h1>
+
+          {!pending ? (
+            <div className="rounded-lg bg-yellow-50 text-yellow-800 text-sm px-3 py-2 border border-yellow-200">
+              Registrierung nicht gefunden oder abgelaufen.
+            </div>
+          ) : null}
 
           <div className="w-24 h-24 rounded-full bg-gray-200 mx-auto flex items-center justify-center">
             <Image
@@ -123,13 +131,10 @@ export default function SelectAvatar() {
 
           <input
             type="text"
-            placeholder="Gebe deinen Namen ein"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="cursor-pointer w-full max-w-md px-3 py-3 border border-gray-300 rounded-xl shadow-sm
-           bg-white text-base text-gray-900 placeholder-gray-500 placeholder:opacity-100
-           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-           transition appearance-none"
+            placeholder="Name"
+            value={pending?.name ?? ""}
+            readOnly
+            className="w-full max-w-md px-3 py-3 border border-gray-300 rounded-xl shadow-sm bg-gray-50 text-base text-gray-900"
           />
 
           <p className="text-sm text-gray-500">Aus der Liste wählen</p>
@@ -139,7 +144,7 @@ export default function SelectAvatar() {
               <button
                 key={index}
                 onClick={() => setSelectedAvatar(index)}
-                className={`cursor-pointer w-10 h-10 rounded-full border-2 ${
+                className={`w-10 h-10 rounded-full border-2 ${
                   selectedAvatar === index
                     ? "border-[#5D5FEF]"
                     : "border-transparent"
@@ -157,16 +162,16 @@ export default function SelectAvatar() {
           </div>
 
           <button
-            onClick={redirectToDashboard}
+            onClick={handleContinue}
             type="button"
-            disabled={!isFormComplete}
-            className={`cursor-pointer mt-2 w-full py-3 rounded-full text-white text-sm font-semibold ${
-              isFormComplete
-                ? "bg-[#5D5FEF] hover:bg-[#4b4de0]"
-                : "bg-[#c7c8f8] cursor-not-allowed"
+            disabled={!isFormComplete || loading}
+            className={`mt-2 w-full py-3 rounded-full text-white text-sm font-semibold transition ${
+              !isFormComplete || loading
+                ? "bg-[#c7c8f8] cursor-not-allowed"
+                : "bg-[#5D5FEF] hover:bg-[#4b4de0]"
             }`}
           >
-            Weiter
+            {loading ? "Speichern..." : "Weiter"}
           </button>
         </div>
       </div>
