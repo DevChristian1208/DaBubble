@@ -1,41 +1,43 @@
 // src/app/lib/crypto.ts
-export async function deriveHash(password: string, saltB64?: string) {
-    const enc = new TextEncoder();
-    let saltBytes: Uint8Array;
-  
-    if (saltB64) {
-      const bin = atob(saltB64);
-      saltBytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) saltBytes[i] = bin.charCodeAt(i);
-    } else {
-      saltBytes = new Uint8Array(16);
-      crypto.getRandomValues(saltBytes);
-    }
-  
-    const keyMaterial = await crypto.subtle.importKey(
-      "raw",
-      enc.encode(password),
-      "PBKDF2",
-      false,
-      ["deriveKey"]
-    );
-    const key = await crypto.subtle.deriveKey(
-      { name: "PBKDF2", salt: saltBytes, iterations: 100_000, hash: "SHA-256" },
-      keyMaterial,
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt", "decrypt"]
-    );
-    const raw = await crypto.subtle.exportKey("raw", key);
-    const hashB64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
-    const saltOut = saltB64 ?? btoa(String.fromCharCode(...saltBytes));
-    return { hashB64, saltB64: saltOut };
-  }
-  
-  export function randomToken(len = 16) {
-    const bytes = new Uint8Array(len);
-    crypto.getRandomValues(bytes);
-    let b64 = btoa(String.fromCharCode(...bytes));
-    return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  }
-  
+// Hilfsfunktionen für Base64URL und KDF. NICHT für Login verwenden.
+const b64 = {
+  toUrl(bytes: Uint8Array) {
+    let s = "";
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  },
+  fromUrl(b64url: string): Uint8Array {
+    const b64s = b64url.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64url.length + 3) % 4);
+    const bin = atob(b64s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  },
+};
+
+export async function deriveEncryptionKey(
+  password: string,
+  saltB64url?: string,
+  iterations = 150_000
+) {
+  const enc = new TextEncoder();
+  const salt = saltB64url ? b64.fromUrl(saltB64url) : crypto.getRandomValues(new Uint8Array(16));
+
+  const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false, // non-extractable
+    ["encrypt", "decrypt"]
+  );
+
+  return { key, saltB64url: b64.toUrl(salt), iterations };
+}
+
+export function randomToken(bytesLen = 16) {
+  const bytes = crypto.getRandomValues(new Uint8Array(bytesLen));
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}

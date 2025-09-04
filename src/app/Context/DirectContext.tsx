@@ -10,7 +10,18 @@ import {
   useState,
   ReactNode,
 } from "react";
-import { ref, onValue, off, push, set, get, update } from "firebase/database";
+import {
+  ref,
+  onValue,
+  off,
+  push,
+  set,
+  get,
+  update,
+  query,
+  orderByChild,
+  startAt,
+} from "firebase/database";
 import { db } from "@/app/lib/firebase";
 import { useUser } from "./UserContext";
 
@@ -34,6 +45,7 @@ export type DMThread = {
   otherName: string;
   otherAvatar?: string;
   lastMessageAt?: number;
+  lastReadAt?: number; // 👈 für Unread-Badge
 };
 
 type DirectContextType = {
@@ -46,6 +58,7 @@ type DirectContextType = {
   } | null;
   dmMessages: ChatMessage[];
   dmThreads: DMThread[];
+  unreadCounts: Record<string, number>; // 👈 otherUserId -> count
   startDMWith: (otherUserId: string) => Promise<void>;
   sendDirectMessage: (text: string) => Promise<void>;
   clearDM: () => void;
@@ -69,17 +82,19 @@ export function DirectProvider({ children }: { children: ReactNode }) {
 
   const [dmMessages, setDmMessages] = useState<ChatMessage[]>([]);
   const [dmThreads, setDmThreads] = useState<DMThread[]>([]);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
 
   const messagesRef = useRef<ReturnType<typeof ref> | null>(null);
   const threadsRef = useRef<ReturnType<typeof ref> | null>(null);
 
-  // Threads live lesen
+  // ---- Threads live lesen (inkl. lastReadAt) ----
   useEffect(() => {
     if (threadsRef.current) {
       off(threadsRef.current);
       threadsRef.current = null;
     }
     setDmThreads([]);
+    setUnreadCounts({});
 
     if (!user?.id) return;
 
@@ -89,7 +104,12 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     const unsub = onValue(r, (snap) => {
       const val = (snap.val() || {}) as Record<
         string,
-        { otherName: string; otherAvatar?: string; lastMessageAt?: number }
+        {
+          otherName: string;
+          otherAvatar?: string;
+          lastMessageAt?: number;
+          lastReadAt?: number;
+        }
       >;
 
       const list: DMThread[] = Object.entries(val).map(
@@ -99,9 +119,11 @@ export function DirectProvider({ children }: { children: ReactNode }) {
           otherName: meta?.otherName || "Unbekannt",
           otherAvatar: meta?.otherAvatar,
           lastMessageAt: meta?.lastMessageAt ?? 0,
+          lastReadAt: meta?.lastReadAt ?? 0,
         })
       );
 
+      // 👉 sortiere nach lastMessageAt desc (stabile Reihenfolge; NICHT mehr beim Öffnen aktualisiert)
       list.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
       setDmThreads(list);
     });
@@ -113,7 +135,55 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     };
   }, [user?.id]);
 
-  // Nachrichten für aktive DM lesen
+  // ---- Unread-Zähler: für jeden Thread Nachrichten > lastReadAt zählen ----
+  // Lightweight: Listener je Thread auf "createdAt >= lastReadAt+1"
+  const unreadListeners = useRef<Record<string, () => void>>({});
+  useEffect(() => {
+    // clear alte Listener
+    Object.values(unreadListeners.current).forEach((fn) => fn?.());
+    unreadListeners.current = {};
+
+    if (!user?.id || dmThreads.length === 0) return;
+
+    dmThreads.forEach((t) => {
+      const cid = t.convId;
+      const since = (t.lastReadAt ?? 0) + 1;
+
+      const qref =
+        since > 1
+          ? query(
+              ref(db, `directMessages/${cid}`),
+              orderByChild("createdAt"),
+              startAt(since)
+            )
+          : ref(db, `directMessages/${cid}`);
+
+      const unsub = onValue(qref, (snap) => {
+        const val: Record<string, DMDbMessage> = snap.val() || {};
+        let count = 0;
+        for (const m of Object.values(val)) {
+          // nur Nachrichten des anderen & nur neuer als lastReadAt
+          if (m.createdAt > (t.lastReadAt ?? 0) && m.from?.id !== user.id) {
+            count++;
+          }
+        }
+        setUnreadCounts((prev) =>
+          prev[t.otherUserId] === count
+            ? prev
+            : { ...prev, [t.otherUserId]: count }
+        );
+      });
+
+      unreadListeners.current[t.otherUserId] = () => off(qref, "value", unsub);
+    });
+
+    return () => {
+      Object.values(unreadListeners.current).forEach((fn) => fn?.());
+      unreadListeners.current = {};
+    };
+  }, [user?.id, dmThreads]);
+
+  // ---- Nachrichten für aktive DM lesen ----
   useEffect(() => {
     if (messagesRef.current) {
       off(messagesRef.current);
@@ -143,10 +213,20 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       setDmMessages(list);
     });
 
+    // 👇 beim Öffnen als "gelesen" markieren
+    const now = Date.now();
+    update(ref(db), {
+      [`dmThreads/${user.id}/${activeDMUserId}/lastReadAt`]: now,
+    }).catch(() => {});
+
+    // und lokalen Counter auf 0
+    setUnreadCounts((prev) =>
+      prev[activeDMUserId] ? { ...prev, [activeDMUserId]: 0 } : prev
+    );
+
     return () => {
-      off(r);
+      off(r, "value", unsub);
       messagesRef.current = null;
-      unsub();
     };
   }, [user?.id, activeDMUserId]);
 
@@ -169,18 +249,16 @@ export function DirectProvider({ children }: { children: ReactNode }) {
         avatar: otherAvatar,
       });
 
-      const now = Date.now();
+      // ⚠️ Hier KEIN lastMessageAt setzen → sonst springt der Thread beim Öffnen nach oben.
+      // Nur sicherstellen, dass der Thread-Knoten existiert und lastReadAt initialisieren.
       await update(ref(db), {
-        [`dmThreads/${user.id}/${otherUserId}`]: {
-          otherName,
-          otherAvatar,
-          lastMessageAt: now,
-        },
-        [`dmThreads/${otherUserId}/${user.id}`]: {
-          otherName: user.name,
-          otherAvatar: user.avatar || "/avatar1.png",
-          lastMessageAt: now,
-        },
+        [`dmThreads/${user.id}/${otherUserId}/otherName`]: otherName,
+        [`dmThreads/${user.id}/${otherUserId}/otherAvatar`]: otherAvatar,
+        [`dmThreads/${user.id}/${otherUserId}/lastReadAt`]: Date.now(),
+        // Gegenüber bekommt keinen lastReadAt-Update von hier.
+        [`dmThreads/${otherUserId}/${user.id}/otherName`]: user.name,
+        [`dmThreads/${otherUserId}/${user.id}/otherAvatar`]:
+          user.avatar || "/avatar1.png",
       });
     },
     [user]
@@ -229,17 +307,10 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       const newRef = push(ref(db, `directMessages/${cid}`));
       await set(newRef, message);
 
+      // 👉 lastMessageAt nur beim Senden/Empfangen aktualisieren
       await update(ref(db), {
-        [`dmThreads/${user.id}/${activeDMUserId}`]: {
-          otherName: toMeta!.name,
-          otherAvatar: toMeta!.avatar,
-          lastMessageAt: now,
-        },
-        [`dmThreads/${activeDMUserId}/${user.id}`]: {
-          otherName: user.name,
-          otherAvatar: user.avatar || "/avatar1.png",
-          lastMessageAt: now,
-        },
+        [`dmThreads/${user.id}/${activeDMUserId}/lastMessageAt`]: now,
+        [`dmThreads/${activeDMUserId}/${user.id}/lastMessageAt`]: now,
       });
     },
     [user, activeDMUserId, activeDMUser]
@@ -261,6 +332,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       activeDMUser,
       dmMessages,
       dmThreads,
+      unreadCounts,
       startDMWith,
       sendDirectMessage,
       clearDM,
@@ -270,6 +342,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       activeDMUser,
       dmMessages,
       dmThreads,
+      unreadCounts,
       startDMWith,
       sendDirectMessage,
       clearDM,

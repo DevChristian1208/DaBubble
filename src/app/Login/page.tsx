@@ -6,41 +6,44 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useUser } from "@/app/Context/UserContext";
 
-// ---- PW-Helpers (gleich wie oben) ----
-async function deriveHash(password: string, saltB64: string) {
-  const enc = new TextEncoder();
-  const bin = atob(saltB64);
-  const saltBytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) saltBytes[i] = bin.charCodeAt(i);
-
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits", "deriveKey"]
-  );
-  const key = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt: saltBytes, iterations: 100_000, hash: "SHA-256" },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"]
-  );
-  const raw = await crypto.subtle.exportKey("raw", key);
-  const hashB64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
-  return hashB64;
-}
-// --------------------------------------
+// 🔐 Firebase-Auth + RTDB
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth, db } from "@/app/lib/firebase";
+import { ref, get, query, orderByChild, equalTo } from "firebase/database";
+import { FirebaseError } from "firebase/app";
 
 type RawUser = {
   newname: string;
   newemail: string;
-  newpassword?: string; // Altbestand (Klartext)
-  passwordHash?: string; // Neuer Weg
-  passwordSalt?: string;
   avatar?: string;
+  authUid?: string;
 };
+
+// 🔎 Hilfsfunktion: Fehlercodes sauber mappen + fallback message
+function humanizeAuthError(err: unknown): string {
+  if (err instanceof FirebaseError) {
+    const map: Record<string, string> = {
+      "auth/invalid-credential": "E-Mail oder Passwort ist falsch.",
+      "auth/invalid-email": "Die E-Mail-Adresse ist ungültig.",
+      "auth/user-disabled": "Dieses Konto ist deaktiviert.",
+      "auth/user-not-found": "Es gibt kein Konto mit dieser E-Mail.",
+      "auth/wrong-password": "E-Mail oder Passwort ist falsch.",
+      "auth/too-many-requests":
+        "Zu viele Versuche. Bitte kurz warten oder Passwort zurücksetzen.",
+      "auth/network-request-failed":
+        "Netzwerkfehler. Prüfe deine Internetverbindung.",
+      "auth/configuration-not-found":
+        "Firebase-Auth nicht richtig konfiguriert (API-Key/Domain/Provider).",
+    };
+    return map[err.code] || `Anmeldung fehlgeschlagen: ${err.message}`;
+  }
+  // Unbekannter Fehler-Typ
+  try {
+    return `Anmeldung fehlgeschlagen: ${JSON.stringify(err)}`;
+  } catch {
+    return "Anmeldung fehlgeschlagen.";
+  }
+}
 
 export default function Login() {
   const router = useRouter();
@@ -50,56 +53,96 @@ export default function Login() {
   const [password, setPassword] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
 
-  const RTDB =
-    "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app";
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
     setLoading(true);
 
+    // 👀 Diagnose-Hinweise einmalig ins Log
+    console.log("[Login] using auth project:", {
+      apiKey: auth.app.options.apiKey,
+      authDomain: auth.app.options.authDomain,
+      projectId: auth.app.options.projectId,
+      // Hinweis: Zeig keine Passwörter/Secrets im Log.
+    });
+
     try {
-      const res = await fetch(`${RTDB}/newusers.json`);
-      if (!res.ok) throw new Error("Fetch failed");
-      const data = (await res.json()) as Record<string, RawUser> | null;
-      const entries = Object.entries(data || {});
+      // 1) Firebase Auth Login (Klartext-Passwort – kein eigenes Hashing)
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const uid = cred.user.uid;
 
-      // 1) passenden User per E-Mail finden
-      const found = entries.find(([, v]) => v?.newemail === email);
-      if (!found) {
-        alert("Benutzer nicht gefunden oder Passwort falsch.");
-        setLoading(false);
-        return;
+      // 2) Profil in RTDB suchen – bevorzugt via authUid, sonst E-Mail (Altbestand)
+      let profile: {
+        id: string;
+        newname: string;
+        newemail: string;
+        avatar?: string;
+      } | null = null;
+
+      const usersRef = ref(db, "newusers");
+      const byUid = query(usersRef, orderByChild("authUid"), equalTo(uid));
+      const snapByUid = await get(byUid);
+
+      if (snapByUid.exists()) {
+        const obj = snapByUid.val() as Record<string, RawUser>;
+        const [id, data] = Object.entries(obj)[0];
+        profile = {
+          id,
+          newname: data.newname,
+          newemail: data.newemail,
+          avatar: data.avatar,
+        };
+      } else {
+        const byEmail = query(
+          usersRef,
+          orderByChild("newemail"),
+          equalTo(email)
+        );
+        const snapByEmail = await get(byEmail);
+        if (snapByEmail.exists()) {
+          const obj = snapByEmail.val() as Record<string, RawUser>;
+          const [id, data] = Object.entries(obj)[0];
+          profile = {
+            id,
+            newname: data.newname,
+            newemail: data.newemail,
+            avatar: data.avatar,
+          };
+        }
       }
-      const [id, rawUser] = found;
 
-      // 2) Passwort prüfen (neu: hash/salt; fallback: Klartext-Feld)
-      let ok = false;
-      if (rawUser.passwordHash && rawUser.passwordSalt) {
-        const h = await deriveHash(password, rawUser.passwordSalt);
-        ok = h === rawUser.passwordHash;
-      } else if (rawUser.newpassword) {
-        ok = rawUser.newpassword === password;
+      // 3) UserContext setzen (von deiner UI konsumiert)
+      if (profile) {
+        setUser({
+          id: profile.id,
+          name: profile.newname,
+          email: profile.newemail,
+          avatar: profile.avatar || "/avatar1.png",
+        });
+      } else {
+        // Fallback, falls (noch) kein Profil in RTDB existiert
+        setUser({
+          id: uid,
+          name: cred.user.email?.split("@")[0] || "Unbekannt",
+          email: cred.user.email || email,
+          avatar: "/avatar1.png",
+        });
       }
-
-      if (!ok) {
-        alert("Benutzer nicht gefunden oder Passwort falsch.");
-        setLoading(false);
-        return;
-      }
-
-      // 3) In-Memory-Login
-      setUser({
-        id,
-        name: rawUser.newname,
-        email: rawUser.newemail,
-        avatar: rawUser.avatar || "/avatar1.png",
-      });
 
       router.push("/Dashboard");
     } catch (err) {
-      console.error("Fehler beim Login:", err);
-      alert("Fehler beim Login. Bitte versuche es erneut.");
+      // 🧨 Ausführliches Logging zur Diagnose
+      if (err instanceof FirebaseError) {
+        console.error(
+          "[Login] FirebaseError:",
+          err.code,
+          err.message,
+          err.customData
+        );
+      } else {
+        console.error("[Login] Unknown error:", err);
+      }
+      alert(humanizeAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -107,6 +150,7 @@ export default function Login() {
 
   const redirecttoAvatar = () => router.push("/SelectAvatar");
 
+  // ⬇️ Deine UI unverändert
   return (
     <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
       <div className="absolute top-6 left-6 flex items-center gap-2">

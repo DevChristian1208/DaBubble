@@ -1,9 +1,10 @@
+// src/app/Context/UserContext.tsx
 "use client";
 
 import { createContext, useContext, useState, ReactNode } from "react";
 
 export type User = {
-  id: string;
+  id: string; // Auth-UID
   name: string;
   email: string;
   avatar?: string;

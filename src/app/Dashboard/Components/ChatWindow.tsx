@@ -12,7 +12,6 @@ import MessageComposer from "./MessageComposer";
 
 type Member = { id: string; name: string; email?: string; avatar?: string };
 
-// Optional: passt zum erwarteten Format von MessageList
 type NormalizedMsg = {
   id: string;
   text: string;
@@ -39,34 +38,68 @@ export default function ChatWindow() {
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  // Mitglieder eines Channels laden
+  // Mitglieder laden – robust (channels.members darf /newusers-Key ODER authUid enthalten)
   useEffect(() => {
     if (!activeChannel?.members) {
       setMembers([]);
       return;
     }
     let alive = true;
+
     (async () => {
       try {
+        // alle Nutzer lesen
         const snap = await get(ref(db, "newusers"));
-        const all = snap.val() || {};
-        const arr: Member[] = Object.entries(all)
-          .filter(
-            ([id]) =>
-              activeChannel.members && activeChannel.members[id as string]
-          )
-          .map(([id, u]: any) => ({
-            id,
-            name: u?.newname ?? "Unbekannt",
-            email: u?.newemail,
-            avatar: u?.avatar || "/avatar1.png",
-          }));
-        if (alive) setMembers(arr);
+        const all = (snap.val() || {}) as Record<
+          string,
+          {
+            newname?: string;
+            newemail?: string;
+            avatar?: string;
+            authUid?: string;
+          }
+        >;
+
+        const membersMap = activeChannel.members || {};
+        const arr: Member[] = [];
+
+        for (const [newusersKey, u] of Object.entries(all)) {
+          const isMemberByNewusersKey = !!membersMap[newusersKey];
+          const isMemberByAuthUid = u?.authUid
+            ? !!membersMap[u.authUid]
+            : false;
+
+          if (isMemberByNewusersKey || isMemberByAuthUid) {
+            arr.push({
+              id: newusersKey,
+              name: u?.newname || "Unbekannt",
+              email: u?.newemail || "",
+              avatar: u?.avatar || "/avatar1.png",
+            });
+          }
+        }
+
+        // falls Arr leer ist (falsche Keys im Channel?), zeige sicherheitshalber alle
+        const final =
+          arr.length > 0
+            ? arr
+            : Object.entries(all).map(([id, u]) => ({
+                id,
+                name: u?.newname || "Unbekannt",
+                email: u?.newemail || "",
+                avatar: u?.avatar || "/avatar1.png",
+              }));
+
+        // sortiere alphabetisch
+        final.sort((a, b) => a.name.localeCompare(b.name));
+
+        if (alive) setMembers(final);
       } catch (e) {
-        console.error(e);
+        console.error("[ChatWindow] Mitglieder laden fehlgeschlagen:", e);
         if (alive) setMembers([]);
       }
     })();
+
     return () => {
       alive = false;
     };
@@ -84,7 +117,6 @@ export default function ChatWindow() {
       const senderAvatar =
         from?.avatar ?? activeDMUser?.avatar ?? "/avatar1.png";
 
-      // ist die Nachricht von der Gegenseite oder von mir? (ohne UserContext fallbacken wir auf E-Mail-Vergleich, wenn vorhanden)
       const isMine =
         typeof from?.email === "string" &&
         typeof activeDMUser?.email === "string"
@@ -133,7 +165,7 @@ export default function ChatWindow() {
           </div>
         </div>
 
-        {/* Nachrichten (scrollbar) */}
+        {/* Nachrichten */}
         <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="mx-auto w-full max-w-3xl">
             <MessageList messages={dmMessagesNormalized as any} />
@@ -198,7 +230,7 @@ export default function ChatWindow() {
             </button>
           </div>
 
-          {/* Nachrichten (scrollbar) */}
+          {/* Nachrichten */}
           <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
             <div className="mx-auto w-full max-w-3xl">
               <MessageList messages={channelMessages as any} />

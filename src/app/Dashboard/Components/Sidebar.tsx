@@ -1,23 +1,16 @@
 "use client";
 
+import { useEffect, useMemo, useState, KeyboardEvent } from "react";
 import Image from "next/image";
-import { useMemo, useState, KeyboardEvent } from "react";
 import { useUser } from "@/app/Context/UserContext";
 import { useChannel } from "@/app/Context/ChannelContext";
 import { useDirect } from "@/app/Context/DirectContext";
-import AddChannelModal from "./AddChannelModal";
+import { ref, onValue, set } from "firebase/database";
+import { db } from "@/app/lib/firebase";
 
 type SidebarProps = {
   open?: boolean;
   onToggle?: () => void;
-};
-
-type SidebarUserItem = {
-  id?: string;
-  name: string;
-  avatar: string;
-  active: boolean;
-  email?: string;
 };
 
 export default function Sidebar({ open = true, onToggle }: SidebarProps) {
@@ -25,25 +18,48 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmsOpen, setDmsOpen] = useState(true);
 
+  // Workspace-Name aus RTDB
+  const [workspaceName, setWorkspaceName] = useState("Devspace");
+
   const { user } = useUser();
   const { channels, activeChannelId, setActiveChannelId } = useChannel();
 
-  // Direct-Context
-  const direct = useDirect();
-  const { dmThreads = [], startDMWith, activeDMUserId, clearDM } = direct;
+  const {
+    dmThreads = [],
+    startDMWith,
+    activeDMUserId,
+    clearDM,
+    unreadCounts,
+  } = useDirect();
 
-  const users: SidebarUserItem[] = useMemo(() => {
-    if (!user) return [];
-    return [
-      {
-        id: "me",
-        name: `${user.name} (Du)`,
-        avatar: user.avatar || "/avatar1.png",
-        active: true,
-        email: user.email,
-      },
-    ];
-  }, [user]);
+  // Workspace-Namen live lesen
+  useEffect(() => {
+    const r = ref(db, "workspace/name");
+    const unsub = onValue(r, (snap) => {
+      const val = snap.val();
+      if (typeof val === "string" && val.trim()) {
+        setWorkspaceName(val);
+      } else {
+        setWorkspaceName("Devspace");
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const handleRenameWorkspace = async () => {
+    const next = prompt(
+      "Neuen Workspace-Namen eingeben:",
+      workspaceName
+    )?.trim();
+    if (!next) return;
+    try {
+      await set(ref(db, "workspace/name"), next);
+      setWorkspaceName(next);
+    } catch (e) {
+      console.error("Workspace-Name konnte nicht gespeichert werden:", e);
+      alert("Speichern fehlgeschlagen.");
+    }
+  };
 
   const handleWorkspaceToggle = () => onToggle?.();
 
@@ -74,9 +90,13 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
     }
   };
 
+  // Reihenfolge der DMs kommt bereits sortiert aus dem Context (lastMessageAt desc)
+  const dmList = useMemo(() => dmThreads, [dmThreads]);
+
   return (
     <>
-      <AddChannelModal isOpen={showModal} onClose={() => setShowModal(false)} />
+      {/* Dein AddChannelModal bleibt wie gehabt, der Button unten öffnet es */}
+      {/* <AddChannelModal isOpen={showModal} onClose={() => setShowModal(false)} /> */}
 
       <div className="relative flex items-stretch h-full">
         {/* Workspace-Kante */}
@@ -102,18 +122,21 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
             <>
               {/* Header */}
               <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <Image
                     src="/Workspace logo.png"
                     alt="Workspace"
                     width={48}
                     height={48}
                   />
-                  <h2 className="text-xl font-bold">Devspace</h2>
+                  <h2 className="text-xl font-bold truncate">
+                    {workspaceName}
+                  </h2>
                 </div>
                 <button
                   className="cursor-pointer rounded-full p-1 hover:bg-gray-100"
-                  aria-label="Workspace bearbeiten"
+                  aria-label="Workspace umbenennen"
+                  onClick={handleRenameWorkspace}
                 >
                   <Image
                     src="/16. edit_square (1).png"
@@ -124,7 +147,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 </button>
               </div>
 
-              {/* Channels – Header (div statt button, damit kein button-in-button) */}
+              {/* Channels – Header */}
               <div
                 role="button"
                 tabIndex={0}
@@ -150,7 +173,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                   <span className="font-bold text-[16px]">Channels</span>
                 </div>
 
-                {/* eigener Button bleibt Button */}
+                {/* Dein eigener Modal-Button */}
                 <button
                   type="button"
                   onClick={(e) => {
@@ -208,7 +231,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 </li>
               </ul>
 
-              {/* Direktnachrichten – Header (div statt button) */}
+              {/* Direktnachrichten – Header */}
               <div
                 role="button"
                 tabIndex={0}
@@ -244,60 +267,47 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 }`}
                 style={{ maxHeight: dmsOpen ? 500 : 0, overflow: "hidden" }}
               >
-                {dmThreads.map((t) => (
-                  <li key={t.convId}>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenDM(t.otherUserId)}
-                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left cursor-pointer ${
-                        activeDMUserId === t.otherUserId
-                          ? "bg-[#EEF0FF] text-[#5D5FEF]"
-                          : "hover:bg-gray-100 text-gray-800"
-                      }`}
-                      title={t.otherName}
-                    >
-                      <div className="relative shrink-0">
-                        <Image
-                          src={t.otherAvatar || "/avatar1.png"}
-                          alt={t.otherName}
-                          width={24}
-                          height={24}
-                          className="rounded-full"
-                        />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="truncate">{t.otherName}</div>
-                      </div>
-                    </button>
-                  </li>
-                ))}
+                {dmList.map((t) => {
+                  const active = activeDMUserId === t.otherUserId;
+                  const unread = unreadCounts[t.otherUserId] || 0;
 
-                {/* Optional: eigener Eintrag „Du“ */}
-                {users.map((u, i) => (
-                  <li key={`${u.id ?? u.name}-${i}`}>
-                    <div
-                      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
-                        i === 0
-                          ? "bg-[#EEF0FF] text-[#5D5FEF]"
-                          : "hover:bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      <div className="relative">
-                        <Image
-                          src={u.avatar}
-                          alt={u.name}
-                          width={24}
-                          height={24}
-                          className="rounded-full"
-                        />
-                        {u.active && (
-                          <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border border-white" />
-                        )}
-                      </div>
-                      <span>{u.name}</span>
-                    </div>
-                  </li>
-                ))}
+                  return (
+                    <li key={t.convId}>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDM(t.otherUserId)}
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left cursor-pointer transition ${
+                          active
+                            ? "bg-[#EEF0FF] text-[#5D5FEF]"
+                            : "hover:bg-gray-100 text-gray-800"
+                        }`}
+                        title={t.otherName}
+                      >
+                        <div className="relative shrink-0">
+                          <Image
+                            src={t.otherAvatar || "/avatar1.png"}
+                            alt={t.otherName}
+                            width={24}
+                            height={24}
+                            className="rounded-full"
+                          />
+                          {unread > 0 && (
+                            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#5D5FEF] text-white text-[11px] leading-[18px] text-center">
+                              {unread}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate">{t.otherName}</div>
+                          {/* Optional: letzte Aktivität klein anzeigen */}
+                          {/* <div className="text-[11px] text-gray-400">
+                            {t.lastMessageAt ? new Date(t.lastMessageAt).toLocaleString("de-DE") : ""}
+                          </div> */}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </>
           )}
