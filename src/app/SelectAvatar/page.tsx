@@ -1,92 +1,89 @@
+// src/app/SelectAvatar/page.tsx
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useUser } from "../Context/UserContext";
+import { auth, db } from "@/app/lib/firebase";
+import { onAuthStateChanged, updateProfile } from "firebase/auth";
+import { ref, set } from "firebase/database";
+import { useUser } from "../Context/UserContext"; // wie gehabt
 
 export default function SelectAvatar() {
   const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [uid, setUid] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const { setUser } = useUser();
   const router = useRouter();
 
-  const avatars: string[] = [
-    "/avatar1.png",
-    "/avatar2.png",
-    "/avatar3.png",
-    "/avatar4.png",
-    "/avatar5.png",
-    "/avatar6.png",
-  ];
+  const avatars = useMemo(
+    () => [
+      "/avatar1.png",
+      "/avatar2.png",
+      "/avatar3.png",
+      "/avatar4.png",
+      "/avatar5.png",
+      "/avatar6.png",
+    ],
+    []
+  );
 
   const isFormComplete = selectedAvatar !== null && name.trim() !== "";
 
   useEffect(() => {
-    const pendingRaw = localStorage.getItem("pendingRegistration");
-    if (pendingRaw) {
-      try {
-        const pending = JSON.parse(pendingRaw) as {
-          name: string;
-          email: string;
-          password: string;
-        };
-        setName(pending.name || "");
-        setEmail(pending.email || "");
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (!u) {
+        router.replace("/Login");
         return;
-      } catch {}
-    }
-    const storedEmail = localStorage.getItem("userEmail") || "";
-    const storedName = localStorage.getItem("userName") || "";
-    setEmail(storedEmail);
-    setName(storedName);
-  }, []);
+      }
+      setUid(u.uid);
+      setEmail(u.email || localStorage.getItem("userEmail") || "");
+      const display = u.displayName || localStorage.getItem("userName") || "";
+      setName(display);
+    });
+    return () => unsub();
+  }, [router]);
 
   const redirectToDashboard = async () => {
-    if (!isFormComplete) return;
+    if (!isFormComplete || !uid || saving) return;
+    setSaving(true);
 
-    const pendingRaw = localStorage.getItem("pendingRegistration");
-    const password = pendingRaw
-      ? (JSON.parse(pendingRaw).password as string)
-      : "";
-
-    const selected = avatars[selectedAvatar!];
-    const URL =
-      "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app";
+    const avatar = avatars[selectedAvatar!];
 
     try {
-      const payload = {
-        newname: name,
-        newemail: email,
-        newpassword: password,
-        avatar: selected,
+      // DisplayName konsistent halten
+      if (
+        auth.currentUser &&
+        name.trim() &&
+        auth.currentUser.displayName !== name.trim()
+      ) {
+        await updateProfile(auth.currentUser, { displayName: name.trim() });
+      }
+
+      // RTDB: /users/{uid}
+      await set(ref(db, `users/${uid}`), {
+        name: name.trim(),
+        email,
+        avatar,
         createdAt: new Date().toISOString(),
-      };
-
-      const res = await fetch(`${URL}/newusers.json`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("Fehler beim Speichern des Avatars.");
-      const data = (await res.json()) as { name: string }; // { name: "<firebaseKey>" }
-      const userId = data.name;
 
-      setUser({ id: userId, name, email, avatar: selected });
-
-      localStorage.setItem("userId", userId);
+      setUser({ id: uid, name: name.trim(), email, avatar });
+      localStorage.setItem("userId", uid);
       localStorage.setItem("userEmail", email);
-      localStorage.setItem("userName", name);
-      localStorage.setItem("userAvatar", selected);
-      localStorage.removeItem("pendingRegistration");
+      localStorage.setItem("userName", name.trim());
+      localStorage.setItem("userAvatar", avatar);
 
       router.push("/Dashboard");
     } catch (err) {
       console.error(err);
       alert("Speichern des Avatars fehlgeschlagen. Bitte erneut versuchen.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -104,7 +101,7 @@ export default function SelectAvatar() {
 
       <div className="flex justify-center items-center min-h-screen">
         <div className="w-full max-w-sm bg-white rounded-3xl shadow-md p-8 space-y-6 mt-12 text-center">
-          <h1 className="text-2xl font-semibold text-[#5D5FEF] placeholder:opacity-100">
+          <h1 className="text-2xl font-semibold text-[#5D5FEF]">
             Wähle deinen Avatar
           </h1>
 
@@ -123,7 +120,7 @@ export default function SelectAvatar() {
 
           <input
             type="text"
-            placeholder="Gebe deinen Namen ein"
+            placeholder="Gib deinen Namen ein"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="cursor-pointer w-full max-w-md px-3 py-3 border border-gray-300 rounded-xl shadow-sm
@@ -144,6 +141,8 @@ export default function SelectAvatar() {
                     ? "border-[#5D5FEF]"
                     : "border-transparent"
                 }`}
+                aria-pressed={selectedAvatar === index}
+                aria-label={`Avatar ${index + 1} auswählen`}
               >
                 <Image
                   src={src}
@@ -159,14 +158,14 @@ export default function SelectAvatar() {
           <button
             onClick={redirectToDashboard}
             type="button"
-            disabled={!isFormComplete}
+            disabled={!isFormComplete || saving}
             className={`cursor-pointer mt-2 w-full py-3 rounded-full text-white text-sm font-semibold ${
-              isFormComplete
-                ? "bg-[#5D5FEF] hover:bg-[#4b4de0]"
-                : "bg-[#c7c8f8] cursor-not-allowed"
+              !isFormComplete || saving
+                ? "bg-[#c7c8f8] cursor-not-allowed"
+                : "bg-[#5D5FEF] hover:bg-[#4b4de0]"
             }`}
           >
-            Weiter
+            {saving ? "Speichern..." : "Weiter"}
           </button>
         </div>
       </div>

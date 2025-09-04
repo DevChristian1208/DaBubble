@@ -2,12 +2,22 @@
 
 import { useEffect } from "react";
 import { useUser } from "@/app/Context/UserContext";
+import { auth, db } from "@/app/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  ref,
+  get,
+  query,
+  orderByChild,
+  equalTo,
+  DataSnapshot,
+} from "firebase/database";
 
 type FirebaseUser = {
   newname: string;
   newemail: string;
-  newpassword?: string;
   avatar?: string;
+  authUid?: string; // <- Wichtig, wenn du es in SelectAvatar mitschreibst
 };
 
 export default function DashboardWrapper({
@@ -15,45 +25,71 @@ export default function DashboardWrapper({
 }: {
   children: React.ReactNode;
 }) {
-  const { setUser } = useUser();
+  const { user, setUser } = useUser();
 
   useEffect(() => {
-    async function fetchUserData() {
-      const email = localStorage.getItem("userEmail");
-      const name = localStorage.getItem("userName");
-      if (!email || !name) return;
+    // Wenn User schon gesetzt ist, nichts tun
+    if (user?.id) return;
+
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) return; // AuthBootstrap sorgt dafür, dass wir hier landen
 
       try {
-        const response = await fetch(
-          "https://testprojekt-22acd-default-rtdb.europe-west1.firebasedatabase.app/newusers.json"
-        );
+        // 1) Bevorzugt: User via authUid finden (keine LocalStorage-Abhängigkeit)
+        //    -> Stelle sicher, dass du beim Anlegen des Users (SelectAvatar)
+        //       `authUid: auth.currentUser?.uid` mitspeicherst.
+        const usersRef = ref(db, "newusers");
+        const byUid = query(usersRef, orderByChild("authUid"), equalTo(u.uid));
+        const snapByUid: DataSnapshot = await get(byUid);
 
-        const data = (await response.json()) as Record<
-          string,
-          FirebaseUser
-        > | null;
-        if (!data) return;
+        if (snapByUid.exists()) {
+          const obj = snapByUid.val() as Record<string, FirebaseUser>;
+          const [id, data] = Object.entries(obj)[0];
+          setUser({
+            id,
+            name: data.newname,
+            email: data.newemail,
+            avatar: data.avatar || "/avatar1.png",
+          });
+          return;
+        }
 
-        const found = Object.entries(data).find(
-          ([, value]) => value?.newemail === email && value?.newname === name
-        );
-        if (!found) return;
+        // 2) Fallback (kompatibel zu deinem jetzigen Stand):
+        //    Wenn noch kein authUid in der DB existiert, auf alte LocalStorage-Werte zurückgreifen.
+        if (typeof window !== "undefined") {
+          const lsEmail = localStorage.getItem("userEmail");
+          const lsName = localStorage.getItem("userName");
 
-        const [id, userData] = found;
+          if (lsEmail && lsName) {
+            // gesamte Liste holen und matchen (wie vorher)
+            const allSnap = await get(usersRef);
+            const all = (allSnap.val() || {}) as Record<string, FirebaseUser>;
+            const found = Object.entries(all).find(
+              ([, v]) => v?.newemail === lsEmail && v?.newname === lsName
+            );
 
-        setUser({
-          id,
-          name: userData.newname,
-          email: userData.newemail,
-          avatar: userData.avatar || "/avatar1.png",
-        });
-      } catch (error) {
-        console.error("Fehler beim Laden der Benutzerdaten:", error);
+            if (found) {
+              const [id, v] = found;
+              setUser({
+                id,
+                name: v.newname,
+                email: v.newemail,
+                avatar: v.avatar || "/avatar1.png",
+              });
+              return;
+            }
+          }
+        }
+
+        // 3) Kein Treffer -> nichts setzen (z. B. frisch anonymer Nutzer)
+        //    Optional: Hier könntest du auch auf /Login oder /Newuser redirecten.
+      } catch (err) {
+        console.error("Fehler beim Laden des Users:", err);
       }
-    }
+    });
 
-    fetchUserData();
-  }, [setUser]);
+    return () => unsub();
+  }, [setUser, user?.id]);
 
   return <>{children}</>;
 }

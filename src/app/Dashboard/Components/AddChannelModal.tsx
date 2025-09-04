@@ -38,7 +38,7 @@ export default function AddChannelModal({
       <div className="bg-white w-full max-w-[872px] rounded-[24px] p-6 sm:p-8 shadow-2xl relative">
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 text-2xl font-bold text-gray-500 hover:text-gray-700"
+          className="absolute top-5 right-5 text-2xl font-bold text-gray-500 hover:text-gray-700 cursor-pointer"
           aria-label="Modal schließen"
         >
           ×
@@ -80,14 +80,14 @@ export default function AddChannelModal({
         <div className="mt-8 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-5 py-2 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-50"
+            className="px-5 py-2 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer"
           >
             Abbrechen
           </button>
           <button
             onClick={submit}
             disabled={loading || !name.trim()}
-            className="bg-[#5D5FEF] disabled:opacity-60 text-white px-6 py-2 rounded-full font-semibold hover:bg-[#4a4cdb] transition"
+            className="bg-[#5D5FEF] disabled:opacity-60 text-white px-6 py-2 rounded-full font-semibold hover:bg-[#4a4cdb] transition cursor-pointer"
           >
             {loading ? "Erstelle…" : "Erstellen"}
           </button>

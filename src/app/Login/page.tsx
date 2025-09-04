@@ -5,15 +5,45 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useUser } from "@/app/Context/UserContext";
-import { db } from "@/app/lib/firebase";
-import { ref, get } from "firebase/database";
+
+// 🔐 Firebase-Auth + RTDB
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth, db } from "@/app/lib/firebase";
+import { ref, get, query, orderByChild, equalTo } from "firebase/database";
+import { FirebaseError } from "firebase/app";
 
 type RawUser = {
   newname: string;
   newemail: string;
-  newpassword?: string;
   avatar?: string;
+  authUid?: string;
 };
+
+// 🔎 Hilfsfunktion: Fehlercodes sauber mappen + fallback message
+function humanizeAuthError(err: unknown): string {
+  if (err instanceof FirebaseError) {
+    const map: Record<string, string> = {
+      "auth/invalid-credential": "E-Mail oder Passwort ist falsch.",
+      "auth/invalid-email": "Die E-Mail-Adresse ist ungültig.",
+      "auth/user-disabled": "Dieses Konto ist deaktiviert.",
+      "auth/user-not-found": "Es gibt kein Konto mit dieser E-Mail.",
+      "auth/wrong-password": "E-Mail oder Passwort ist falsch.",
+      "auth/too-many-requests":
+        "Zu viele Versuche. Bitte kurz warten oder Passwort zurücksetzen.",
+      "auth/network-request-failed":
+        "Netzwerkfehler. Prüfe deine Internetverbindung.",
+      "auth/configuration-not-found":
+        "Firebase-Auth nicht richtig konfiguriert (API-Key/Domain/Provider).",
+    };
+    return map[err.code] || `Anmeldung fehlgeschlagen: ${err.message}`;
+  }
+  // Unbekannter Fehler-Typ
+  try {
+    return `Anmeldung fehlgeschlagen: ${JSON.stringify(err)}`;
+  } catch {
+    return "Anmeldung fehlgeschlagen.";
+  }
+}
 
 export default function Login() {
   const router = useRouter();
@@ -28,46 +58,99 @@ export default function Login() {
     if (!email || !password) return;
     setLoading(true);
 
+    // 👀 Diagnose-Hinweise einmalig ins Log
+    console.log("[Login] using auth project:", {
+      apiKey: auth.app.options.apiKey,
+      authDomain: auth.app.options.authDomain,
+      projectId: auth.app.options.projectId,
+      // Hinweis: Zeig keine Passwörter/Secrets im Log.
+    });
+
     try {
-      const snap = await get(ref(db, "newusers"));
-      const data = (snap.val() || {}) as Record<string, RawUser>;
+      // 1) Firebase Auth Login (Klartext-Passwort – kein eigenes Hashing)
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const uid = cred.user.uid;
 
-      const entry = Object.entries(data).find(
-        ([, value]) =>
-          value?.newemail === email && value?.newpassword === password
-      );
+      // 2) Profil in RTDB suchen – bevorzugt via authUid, sonst E-Mail (Altbestand)
+      let profile: {
+        id: string;
+        newname: string;
+        newemail: string;
+        avatar?: string;
+      } | null = null;
 
-      if (!entry) {
-        alert("Benutzer nicht gefunden oder Passwort falsch.");
-        setLoading(false);
-        return;
+      const usersRef = ref(db, "newusers");
+      const byUid = query(usersRef, orderByChild("authUid"), equalTo(uid));
+      const snapByUid = await get(byUid);
+
+      if (snapByUid.exists()) {
+        const obj = snapByUid.val() as Record<string, RawUser>;
+        const [id, data] = Object.entries(obj)[0];
+        profile = {
+          id,
+          newname: data.newname,
+          newemail: data.newemail,
+          avatar: data.avatar,
+        };
+      } else {
+        const byEmail = query(
+          usersRef,
+          orderByChild("newemail"),
+          equalTo(email)
+        );
+        const snapByEmail = await get(byEmail);
+        if (snapByEmail.exists()) {
+          const obj = snapByEmail.val() as Record<string, RawUser>;
+          const [id, data] = Object.entries(obj)[0];
+          profile = {
+            id,
+            newname: data.newname,
+            newemail: data.newemail,
+            avatar: data.avatar,
+          };
+        }
       }
 
-      const [id, rawUser] = entry;
-
-      setUser({
-        id,
-        name: rawUser.newname,
-        email: rawUser.newemail,
-        avatar: rawUser.avatar || "/avatar1.png",
-      });
-
-      localStorage.setItem("userEmail", rawUser.newemail);
-      localStorage.setItem("userName", rawUser.newname);
+      // 3) UserContext setzen (von deiner UI konsumiert)
+      if (profile) {
+        setUser({
+          id: profile.id,
+          name: profile.newname,
+          email: profile.newemail,
+          avatar: profile.avatar || "/avatar1.png",
+        });
+      } else {
+        // Fallback, falls (noch) kein Profil in RTDB existiert
+        setUser({
+          id: uid,
+          name: cred.user.email?.split("@")[0] || "Unbekannt",
+          email: cred.user.email || email,
+          avatar: "/avatar1.png",
+        });
+      }
 
       router.push("/Dashboard");
     } catch (err) {
-      console.error("Fehler beim Login:", err);
-      alert("Fehler beim Login. Bitte versuche es erneut.");
+      // 🧨 Ausführliches Logging zur Diagnose
+      if (err instanceof FirebaseError) {
+        console.error(
+          "[Login] FirebaseError:",
+          err.code,
+          err.message,
+          err.customData
+        );
+      } else {
+        console.error("[Login] Unknown error:", err);
+      }
+      alert(humanizeAuthError(err));
     } finally {
       setLoading(false);
     }
   };
 
-  const redirecttoAvatar = () => {
-    router.push("/SelectAvatar");
-  };
+  const redirecttoAvatar = () => router.push("/SelectAvatar");
 
+  // ⬇️ Deine UI unverändert
   return (
     <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
       <div className="absolute top-6 left-6 flex items-center gap-2">
@@ -143,6 +226,9 @@ export default function Login() {
             <button
               type="button"
               className="w-full inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 bg-white px-5 py-3 text-base font-medium text-gray-700 transition hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5D5FEF]/40 appearance-none cursor-pointer"
+              onClick={() =>
+                alert("Google-Login ist noch nicht implementiert.")
+              }
             >
               <Image src="/Google.png" alt="Google" width={20} height={20} />
               <span>Anmelden mit Google</span>
