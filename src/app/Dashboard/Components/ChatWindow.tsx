@@ -38,7 +38,7 @@ export default function ChatWindow() {
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  // Mitglieder laden – robust (channels.members darf /newusers-Key ODER authUid enthalten)
+  // Mitglieder laden – akzeptiert /newusers-Key ODER authUid in channel.members
   useEffect(() => {
     if (!activeChannel?.members) {
       setMembers([]);
@@ -48,9 +48,8 @@ export default function ChatWindow() {
 
     (async () => {
       try {
-        // alle Nutzer lesen
-        const snap = await get(ref(db, "newusers"));
-        const all = (snap.val() || {}) as Record<
+        const newSnap = await get(ref(db, "newusers"));
+        const newVal = (newSnap.val() || {}) as Record<
           string,
           {
             newname?: string;
@@ -63,13 +62,10 @@ export default function ChatWindow() {
         const membersMap = activeChannel.members || {};
         const arr: Member[] = [];
 
-        for (const [newusersKey, u] of Object.entries(all)) {
-          const isMemberByNewusersKey = !!membersMap[newusersKey];
-          const isMemberByAuthUid = u?.authUid
-            ? !!membersMap[u.authUid]
-            : false;
-
-          if (isMemberByNewusersKey || isMemberByAuthUid) {
+        for (const [newusersKey, u] of Object.entries(newVal)) {
+          const isMemberByKey = !!membersMap[newusersKey];
+          const isMemberByAuth = u?.authUid ? !!membersMap[u.authUid] : false;
+          if (isMemberByKey || isMemberByAuth) {
             arr.push({
               id: newusersKey,
               name: u?.newname || "Unbekannt",
@@ -79,20 +75,18 @@ export default function ChatWindow() {
           }
         }
 
-        // falls Arr leer ist (falsche Keys im Channel?), zeige sicherheitshalber alle
+        // Wenn aus irgendeinem Grund niemand gematcht hat (alte Daten), zeige alle
         const final =
           arr.length > 0
             ? arr
-            : Object.entries(all).map(([id, u]) => ({
+            : Object.entries(newVal).map(([id, u]) => ({
                 id,
                 name: u?.newname || "Unbekannt",
                 email: u?.newemail || "",
                 avatar: u?.avatar || "/avatar1.png",
               }));
 
-        // sortiere alphabetisch
         final.sort((a, b) => a.name.localeCompare(b.name));
-
         if (alive) setMembers(final);
       } catch (e) {
         console.error("[ChatWindow] Mitglieder laden fehlgeschlagen:", e);
@@ -108,7 +102,6 @@ export default function ChatWindow() {
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
   const moreCount = Math.max(0, members.length - topAvatars.length);
 
-  // ---- DM: defensiv normalisieren (handles m.from fehlend / legacy m.user) ----
   const dmMessagesNormalized: NormalizedMsg[] = useMemo(() => {
     return dmMessages.map((m: any) => {
       const from = m?.from ?? m?.user ?? null;
@@ -142,7 +135,6 @@ export default function ChatWindow() {
   if (activeDMUserId && activeDMUser) {
     return (
       <div className="flex-1 min-h-0 h-full bg-white rounded-[20px] shadow-sm flex flex-col overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
           <div className="flex items-center gap-3">
             <Image
@@ -165,14 +157,12 @@ export default function ChatWindow() {
           </div>
         </div>
 
-        {/* Nachrichten */}
         <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="mx-auto w-full max-w-3xl">
             <MessageList messages={dmMessagesNormalized as any} />
           </div>
         </div>
 
-        {/* Composer */}
         <div className="px-2 sm:px-4 md:px-6 pb-4 sm:pb-5 pt-2 border-t border-gray-200">
           <div className="mx-auto w-full max-w-3xl">
             <MessageComposer
@@ -192,7 +182,6 @@ export default function ChatWindow() {
     return (
       <>
         <div className="flex-1 min-h-0 h-full bg-white rounded-[20px] shadow-sm flex flex-col overflow-hidden">
-          {/* Header */}
           <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
             <div className="flex items-center gap-2 sm:gap-3">
               <span className="text-lg sm:text-xl md:text-2xl font-extrabold leading-tight">
@@ -205,7 +194,6 @@ export default function ChatWindow() {
               ) : null}
             </div>
 
-            {/* Mitglieder-Pill */}
             <button
               onClick={() => setMembersOpen(true)}
               className="hidden md:flex items-center gap-2 bg-gray-100 hover:bg-gray-200 transition px-3 py-2 rounded-full"
@@ -230,14 +218,12 @@ export default function ChatWindow() {
             </button>
           </div>
 
-          {/* Nachrichten */}
           <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
             <div className="mx-auto w-full max-w-3xl">
               <MessageList messages={channelMessages as any} />
             </div>
           </div>
 
-          {/* Composer */}
           <div className="px-2 sm:px-4 md:px-6 pb-4 sm:pb-5 pt-2 border-t border-gray-200">
             <div className="mx-auto w-full max-w-3xl">
               <MessageComposer
@@ -250,7 +236,6 @@ export default function ChatWindow() {
           </div>
         </div>
 
-        {/* Mitglieder-Modal */}
         <MembersModal
           isOpen={membersOpen}
           onClose={() => setMembersOpen(false)}

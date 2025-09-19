@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useUser } from "@/app/Context/UserContext";
 
-// 🔐 Firebase-Auth + RTDB
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/app/lib/firebase";
 import { ref, get, query, orderByChild, equalTo } from "firebase/database";
@@ -19,7 +18,6 @@ type RawUser = {
   authUid?: string;
 };
 
-// 🔎 Hilfsfunktion: Fehlercodes sauber mappen + fallback message
 function humanizeAuthError(err: unknown): string {
   if (err instanceof FirebaseError) {
     const map: Record<string, string> = {
@@ -37,7 +35,7 @@ function humanizeAuthError(err: unknown): string {
     };
     return map[err.code] || `Anmeldung fehlgeschlagen: ${err.message}`;
   }
-  // Unbekannter Fehler-Typ
+
   try {
     return `Anmeldung fehlgeschlagen: ${JSON.stringify(err)}`;
   } catch {
@@ -58,12 +56,10 @@ export default function Login() {
     if (!email || !password) return;
     setLoading(true);
 
-    // 👀 Diagnose-Hinweise einmalig ins Log
     console.log("[Login] using auth project:", {
       apiKey: auth.app.options.apiKey,
       authDomain: auth.app.options.authDomain,
       projectId: auth.app.options.projectId,
-      // Hinweis: Zeig keine Passwörter/Secrets im Log.
     });
 
     try {
@@ -71,7 +67,6 @@ export default function Login() {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       const uid = cred.user.uid;
 
-      // 2) Profil in RTDB suchen – bevorzugt via authUid, sonst E-Mail (Altbestand)
       let profile: {
         id: string;
         newname: string;
@@ -111,7 +106,6 @@ export default function Login() {
         }
       }
 
-      // 3) UserContext setzen (von deiner UI konsumiert)
       if (profile) {
         setUser({
           id: profile.id,
@@ -120,7 +114,6 @@ export default function Login() {
           avatar: profile.avatar || "/avatar1.png",
         });
       } else {
-        // Fallback, falls (noch) kein Profil in RTDB existiert
         setUser({
           id: uid,
           name: cred.user.email?.split("@")[0] || "Unbekannt",
@@ -131,7 +124,6 @@ export default function Login() {
 
       router.push("/Dashboard");
     } catch (err) {
-      // 🧨 Ausführliches Logging zur Diagnose
       if (err instanceof FirebaseError) {
         console.error(
           "[Login] FirebaseError:",
@@ -150,7 +142,6 @@ export default function Login() {
 
   const redirecttoAvatar = () => router.push("/SelectAvatar");
 
-  // ⬇️ Deine UI unverändert
   return (
     <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
       <div className="absolute top-6 left-6 flex items-center gap-2">
