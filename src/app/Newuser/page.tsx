@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth } from "@/app/lib/firebase";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
 
 export default function Register() {
   const [name, setName] = useState("");
@@ -35,12 +36,21 @@ export default function Register() {
       setPassword("");
       setAccept(false);
       router.push("/SelectAvatar");
-    } catch (e: any) {
-      const code = e?.code ?? "unknown";
-      const msg = e?.message ?? String(e);
-      console.error("Registrierung fehlgeschlagen:", code, msg, e);
+    } catch (err: unknown) {
+      const code =
+        err instanceof FirebaseError
+          ? err.code
+          : typeof err === "object" &&
+            err !== null &&
+            "code" in err &&
+            typeof (err as { code?: unknown }).code === "string"
+          ? (err as { code: string }).code
+          : "unknown";
 
-      // Quick Mapping für häufige Fälle
+      const msg = err instanceof Error ? err.message : String(err);
+
+      console.error("Registrierung fehlgeschlagen:", code, msg, err);
+
       const friendly =
         code === "auth/operation-not-allowed"
           ? "E-Mail/Passwort-Login ist im Firebase-Backend deaktiviert."
@@ -52,7 +62,7 @@ export default function Register() {
           ? "E-Mail ungültig."
           : code === "auth/unauthorized-domain"
           ? "Deine Domain ist in Firebase Authentication nicht freigegeben."
-          : code?.startsWith("auth/")
+          : code.startsWith("auth/")
           ? `Firebase-Auth-Fehler: ${code}`
           : "Unbekannter Fehler. Details in der Konsole.";
 

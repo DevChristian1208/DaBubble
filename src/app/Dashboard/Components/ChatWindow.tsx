@@ -9,16 +9,9 @@ import { useDirect } from "@/app/Context/DirectContext";
 import MembersModal from "./MembersModal";
 import MessageList from "./MessageList";
 import MessageComposer from "./MessageComposer";
+import type { Message as ChannelMessage } from "@/app/Context/ChannelContext";
 
 type Member = { id: string; name: string; email?: string; avatar?: string };
-
-type NormalizedMsg = {
-  id: string;
-  text: string;
-  createdAt: number | string;
-  user: { name: string; email?: string; avatar?: string };
-  isMine?: boolean;
-};
 
 export default function ChatWindow() {
   const {
@@ -38,7 +31,6 @@ export default function ChatWindow() {
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  // Mitglieder laden – akzeptiert /newusers-Key ODER authUid in channel.members
   useEffect(() => {
     if (!activeChannel?.members) {
       setMembers([]);
@@ -75,7 +67,6 @@ export default function ChatWindow() {
           }
         }
 
-        // Wenn aus irgendeinem Grund niemand gematcht hat (alte Daten), zeige alle
         const final =
           arr.length > 0
             ? arr
@@ -102,26 +93,30 @@ export default function ChatWindow() {
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
   const moreCount = Math.max(0, members.length - topAvatars.length);
 
-  const dmMessagesNormalized: NormalizedMsg[] = useMemo(() => {
-    return dmMessages.map((m: any) => {
-      const from = m?.from ?? m?.user ?? null;
+  const dmMessagesNormalized: ChannelMessage[] = useMemo(() => {
+    return (dmMessages as unknown[]).map((m) => {
+      const obj = m as {
+        id?: string | number;
+        text?: string;
+        createdAt?: number | string;
+        from?: { name?: string; email?: string; avatar?: string };
+        user?: { name?: string; email?: string; avatar?: string };
+      };
+
+      const from = obj?.from ?? obj?.user ?? null;
       const senderName = from?.name ?? activeDMUser?.name ?? "Unbekannt";
       const senderEmail = from?.email ?? activeDMUser?.email ?? "";
       const senderAvatar =
         from?.avatar ?? activeDMUser?.avatar ?? "/avatar1.png";
-
-      const isMine =
-        typeof from?.email === "string" &&
-        typeof activeDMUser?.email === "string"
-          ? from.email !== activeDMUser.email
-          : undefined;
+      const createdAtRaw = obj?.createdAt;
+      const createdAt =
+        typeof createdAtRaw === "number" ? createdAtRaw : Date.now();
 
       return {
-        id: String(m?.id ?? m?.createdAt ?? Math.random()),
-        text: String(m?.text ?? ""),
-        createdAt: m?.createdAt ?? Date.now(),
+        id: String(obj?.id ?? createdAt ?? Math.random()),
+        text: String(obj?.text ?? ""),
+        createdAt,
         user: { name: senderName, email: senderEmail, avatar: senderAvatar },
-        isMine,
       };
     });
   }, [
@@ -131,7 +126,6 @@ export default function ChatWindow() {
     activeDMUser?.avatar,
   ]);
 
-  // ========== DIRECT MESSAGE ==========
   if (activeDMUserId && activeDMUser) {
     return (
       <div className="flex-1 min-h-0 h-full bg-white rounded-[20px] shadow-sm flex flex-col overflow-hidden">
@@ -159,7 +153,7 @@ export default function ChatWindow() {
 
         <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="mx-auto w-full max-w-3xl">
-            <MessageList messages={dmMessagesNormalized as any} />
+            <MessageList messages={dmMessagesNormalized} />
           </div>
         </div>
 
@@ -177,7 +171,6 @@ export default function ChatWindow() {
     );
   }
 
-  // ========== CHANNEL ==========
   if (activeChannel) {
     return (
       <>
@@ -220,7 +213,7 @@ export default function ChatWindow() {
 
           <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
             <div className="mx-auto w-full max-w-3xl">
-              <MessageList messages={channelMessages as any} />
+              <MessageList messages={channelMessages} />
             </div>
           </div>
 
@@ -250,7 +243,6 @@ export default function ChatWindow() {
     );
   }
 
-  // ========== Platzhalter =========
   return (
     <div className="flex-1 h-full bg-white rounded-[20px] p-8 sm:p-10 shadow-sm flex items-center justify-center text-center overflow-hidden">
       <div>

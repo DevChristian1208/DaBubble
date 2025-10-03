@@ -98,7 +98,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         await safeEnsureNewusersForAllUsers();
       }
 
-      // 2) Versuche genau EINMAL, channel.members zu normalisieren/auffüllen (leise ignorieren bei Permission denied)
       if (!repairDone.current) {
         repairDone.current = true;
         await safeNormalizeAndFillChannelMembers();
@@ -106,15 +105,13 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeChannelId]);
 
   const activeChannel = useMemo(
     () => channels.find((c) => c.id === activeChannelId) || null,
     [channels, activeChannelId]
   );
 
-  /** Nachrichten des aktiven Channels */
   useEffect(() => {
     if (!activeChannelId) {
       setMessages([]);
@@ -133,55 +130,42 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     return () => unsub();
   }, [activeChannelId]);
 
-  /**
-   * Sichere Hülle: Backfill /users -> /newusers.
-   * Scheitert das (z. B. Permission denied), wird es deaktiviert und die App läuft weiter.
-   */
   const safeEnsureNewusersForAllUsers = async () => {
     if (!allowUsersBackfill.current) return;
     try {
       await ensureNewusersForAllUsers();
-    } catch (e: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.warn(
         "[ChannelContext] Backfill /users→/newusers übersprungen:",
-        e?.message || e
+        msg
       );
-      // nie wieder versuchen, um weitere Permission-Fehler zu verhindern
       allowUsersBackfill.current = false;
     }
   };
 
-  /**
-   * Sichere Hülle: Members normalisieren/auffüllen.
-   * Scheitert das (z. B. fehlende Rechte), wird still weitergemacht.
-   */
   const safeNormalizeAndFillChannelMembers = async () => {
     try {
       await normalizeAndFillChannelMembers();
-    } catch (e: any) {
-      console.warn(
-        "[ChannelContext] normalize members übersprungen:",
-        e?.message || e
-      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("[ChannelContext] normalize members übersprungen:", msg);
     }
   };
 
-  /** EIGENTLICHER Backfill (kann Permission denied werfen) */
   const ensureNewusersForAllUsers = async () => {
-    // /users komplett lesen -> kann von Regeln verboten sein
-    const usersSnap = await get(ref(db, "users")); // <-- hier knallte es vorher
+    const usersSnap = await get(ref(db, "users"));
     const usersVal = (usersSnap.val() ?? {}) as Record<string, UsersAuth>;
 
     const newSnap = await get(ref(db, "newusers"));
     const newVal = (newSnap.val() ?? {}) as Record<string, NewUser>;
 
-    // Mapping authUid -> newusersKey (bereits vorhanden)
     const byAuthExisting: Record<string, string> = {};
     for (const [k, v] of Object.entries(newVal)) {
       if (v?.authUid) byAuthExisting[v.authUid] = k;
     }
 
-    const writes: Array<Promise<any>> = [];
+    const writes: Array<Promise<void>> = [];
     for (const [authUid, u] of Object.entries(usersVal)) {
       if (!byAuthExisting[authUid]) {
         const nuRef = push(ref(db, "newusers"));
@@ -192,7 +176,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
             avatar: u.avatar || "/avatar1.png",
             authUid,
             createdAt: u.createdAt || new Date().toISOString(),
-          } as NewUser)
+          } as NewUser) as unknown as Promise<void>
         );
       }
     }
@@ -206,9 +190,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  /**
-   * Members normalisieren (authUid->/newusers-Key) und sicherstellen, dass ALLE /newusers drin sind.
-   */
   const normalizeAndFillChannelMembers = async () => {
     const newSnap = await get(ref(db, "newusers"));
     const newVal = (newSnap.val() ?? {}) as Record<string, NewUser>;
@@ -220,25 +201,25 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
 
     const chSnap = await get(ref(db, "channels"));
     const chVal = (chSnap.val() ?? {}) as Record<string, ChannelDB>;
-    const updates: Record<string, any> = {};
+
+    // Map von Pfad → neue Members-Menge
+    const updates: Record<string, Record<string, true>> = {};
 
     for (const [chId, ch] of Object.entries(chVal)) {
       const current = ch.members || {};
       const normalized: Record<string, true> = {};
 
-      // existierende Keys normalisieren
       for (const rawKey of Object.keys(current)) {
         if (allIds.includes(rawKey)) {
-          normalized[rawKey] = true; // bereits /newusers-Key
+          normalized[rawKey] = true;
         } else if (byAuth[rawKey]) {
-          normalized[byAuth[rawKey]] = true; // authUid -> /newusers-Key
+          normalized[byAuth[rawKey]] = true;
         }
       }
 
-      // alle /newusers hinzufügen
+      // alle bekannten Nutzer in jeden Channel aufnehmen
       for (const id of allIds) normalized[id] = true;
 
-      // nur schreiben, wenn sich etwas geändert hat
       const changed =
         !ch.members ||
         Object.keys(ch.members).length !== Object.keys(normalized).length ||
@@ -250,7 +231,8 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     }
 
     if (Object.keys(updates).length > 0) {
-      await update(ref(db), updates);
+      // update erwartet Record<string, unknown>; unsere Struktur ist kompatibel
+      await update(ref(db), updates as Record<string, unknown>);
       console.log(
         "[ChannelContext] Channel members normalisiert/aufgefüllt:",
         Object.keys(updates).length
@@ -258,7 +240,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  /** Channel anlegen – nur mit /newusers arbeiten, Backfill nur „best effort“ */
   const createChannel = async (name: string, description?: string) => {
     setError(null);
     setLoading(true);
@@ -270,16 +251,12 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         .replace(/#/g, "");
       if (!clean)
         throw new Error("Bitte einen gültigen Channel-Namen angeben.");
-
-      // Best effort: Backfill versuchen, aber bei Permission-Fehler still weitermachen
       await safeEnsureNewusersForAllUsers();
 
-      // aktuelle /newusers lesen
       const newSnap = await get(ref(db, "newusers"));
       const newVal = (newSnap.val() ?? {}) as Record<string, NewUser>;
       let ids = Object.keys(newVal || {});
 
-      // Fallback: wenn leer, min. Ersteller als /newusers anlegen
       if (ids.length === 0 && user?.id) {
         const nuRef = push(ref(db, "newusers"));
         const newId = nuRef.key!;
@@ -311,19 +288,18 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         "Mitglieder:",
         Object.keys(members).length
       );
-    } catch (e) {
+    } catch (err: unknown) {
       const msg =
-        e instanceof Error
-          ? e.message
+        err instanceof Error
+          ? err.message
           : "Channel konnte nicht erstellt werden.";
       setError(msg);
-      throw e;
+      throw err;
     } finally {
       setLoading(false);
     }
   };
 
-  /** Nachricht in aktiven Channel senden */
   const sendMessage = async (text: string) => {
     if (!activeChannelId) throw new Error("Kein Channel aktiv.");
     if (!user) throw new Error("Nicht eingeloggt.");
