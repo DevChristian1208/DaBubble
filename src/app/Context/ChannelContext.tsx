@@ -116,7 +116,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)
       );
       setChannels(list);
-
       if (!activeChannelId && list.length > 0) {
         setActiveChannelId(list[0].id);
       } else if (
@@ -145,7 +144,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     });
 
     const channelUnsubs: Record<string, () => void> = {};
-
     const ucRef = ref(db, `userChannels/${uid}`);
     const unsubUC = onValue(ucRef, (snap) => {
       const ids = Object.keys((snap.val() || {}) as Record<string, true>);
@@ -156,7 +154,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
           if (!store[id]?.public) delete store[id];
         }
       }
-
       ids.forEach((id) => {
         if (channelUnsubs[id]) return;
         channelUnsubs[id] = onValue(ref(db, `channels/${id}`), (s) => {
@@ -170,7 +167,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
           emit();
         });
       });
-
       if (ids.length === 0) {
         gotPrivate = true;
         emit();
@@ -193,7 +189,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     const uid = auth.currentUser?.uid;
     const newusersKey = user?.id;
     if (!uid || !newusersKey) return;
-
     const updates: Record<string, any> = {};
     channels.forEach((c) => {
       const m = c.members || {};
@@ -201,11 +196,8 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         updates[`channels/${c.id}/members/${newusersKey}`] = true;
       }
     });
-
     if (Object.keys(updates).length > 0) {
-      update(ref(db), updates).catch((e) => {
-        console.warn("[ChannelContext] Self-Heal members fehlgeschlagen:", e);
-      });
+      update(ref(db), updates).catch(() => {});
     }
   }, [channels, user?.id]);
 
@@ -224,7 +216,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
           user?: { name?: string; email?: string; avatar?: string };
         }
       >;
-
       const list: Message[] = Object.entries(v)
         .map(([id, m]) => ({
           id,
@@ -237,18 +228,16 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
           },
         }))
         .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-
       setMessages(list);
     });
-
     return () => unsub();
   }, [activeChannelId]);
+
   const createChannel = async (name: string, description?: string) => {
     setLoading(true);
     setError(null);
     try {
       const uid = await requireAuthUid();
-
       const clean = name
         .trim()
         .toLowerCase()
@@ -266,7 +255,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
           authUid?: string;
         }
       >;
-
       const members: Record<string, true> = {};
       members[uid] = true;
       if (user?.id && user.id !== uid) members[user.id] = true;
@@ -274,7 +262,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         if (u?.authUid) members[u.authUid] = true;
         members[newusersKey] = true;
       }
-
       const chRef = push(ref(db, "channels"));
       const channelId = chRef.key!;
       await set(chRef, {
@@ -285,20 +272,16 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         members,
         public: false,
       });
-
-      // userChannels-Index (pro Auth-UID) anlegen
       const updates: Record<string, any> = {};
       updates[`userChannels/${uid}/${channelId}`] = true;
       for (const u of Object.values(newusers)) {
-        if (u?.authUid) {
-          updates[`userChannels/${u.authUid}/${channelId}`] = true;
+        if ((u as any)?.authUid) {
+          updates[`userChannels/${(u as any).authUid}/${channelId}`] = true;
         }
       }
       await update(ref(db), updates);
-
       setActiveChannelId(channelId || null);
     } catch (e: any) {
-      console.error("[ChannelContext] Channel anlegen fehlgeschlagen:", e);
       setError(e?.message || "Channel konnte nicht erstellt werden.");
       throw e;
     } finally {
@@ -310,10 +293,8 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     const uid = auth.currentUser?.uid;
     if (!uid) throw new Error("Nicht eingeloggt.");
     if (!activeChannelId) throw new Error("Kein Channel aktiv.");
-
     const msg = text.trim();
     if (!msg) return;
-
     const msgRef = push(ref(db, `channelMessages/${activeChannelId}`));
     await set(msgRef, {
       text: msg,

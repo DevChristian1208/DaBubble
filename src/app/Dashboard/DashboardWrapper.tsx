@@ -17,7 +17,7 @@ type FirebaseUser = {
   newname: string;
   newemail: string;
   avatar?: string;
-  authUid?: string; // <- Wichtig, wenn du es in SelectAvatar mitschreibst
+  authUid?: string;
 };
 
 export default function DashboardWrapper({
@@ -28,16 +28,12 @@ export default function DashboardWrapper({
   const { user, setUser } = useUser();
 
   useEffect(() => {
-    // Wenn User schon gesetzt ist, nichts tun
     if (user?.id) return;
 
     const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) return; // AuthBootstrap sorgt dafür, dass wir hier landen
+      if (!u) return;
 
       try {
-        // 1) Bevorzugt: User via authUid finden (keine LocalStorage-Abhängigkeit)
-        //    -> Stelle sicher, dass du beim Anlegen des Users (SelectAvatar)
-        //       `authUid: auth.currentUser?.uid` mitspeicherst.
         const usersRef = ref(db, "newusers");
         const byUid = query(usersRef, orderByChild("authUid"), equalTo(u.uid));
         const snapByUid: DataSnapshot = await get(byUid);
@@ -54,14 +50,11 @@ export default function DashboardWrapper({
           return;
         }
 
-        // 2) Fallback (kompatibel zu deinem jetzigen Stand):
-        //    Wenn noch kein authUid in der DB existiert, auf alte LocalStorage-Werte zurückgreifen.
         if (typeof window !== "undefined") {
           const lsEmail = localStorage.getItem("userEmail");
           const lsName = localStorage.getItem("userName");
 
           if (lsEmail && lsName) {
-            // gesamte Liste holen und matchen (wie vorher)
             const allSnap = await get(usersRef);
             const all = (allSnap.val() || {}) as Record<string, FirebaseUser>;
             const found = Object.entries(all).find(
