@@ -1,3 +1,4 @@
+// src/app/Context/ChannelContext.tsx
 "use client";
 
 import {
@@ -18,6 +19,7 @@ import {
   query,
   orderByChild,
   equalTo,
+  DataSnapshot,
 } from "firebase/database";
 import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "@/app/lib/firebase";
@@ -50,6 +52,22 @@ type ChannelContextType = {
   sendMessage: (text: string) => Promise<void>;
   loading: boolean;
   error: string | null;
+};
+
+type ApiChannel = {
+  name?: string;
+  description?: string;
+  createdAt?: number;
+  createdByEmail?: string;
+  members?: Record<string, true>;
+  public?: boolean;
+};
+
+type NewUser = {
+  newname?: string;
+  newemail?: string;
+  avatar?: string;
+  authUid?: string;
 };
 
 const ChannelContext = createContext<ChannelContextType | undefined>(undefined);
@@ -96,7 +114,10 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
 
-    const normalize = (id: string, c: any): Channel => ({
+    const normalize = (
+      id: string,
+      c: ApiChannel | null | undefined
+    ): Channel => ({
       id,
       name: c?.name || "ohne-namen",
       description: c?.description || "",
@@ -131,11 +152,11 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
       orderByChild("public"),
       equalTo(true)
     );
-    const unsubPublic = onValue(qPublic, (snap) => {
+    const unsubPublic = onValue(qPublic, (snap: DataSnapshot) => {
       for (const [id, ch] of Object.entries(store)) {
         if ((ch as Channel).public) delete store[id];
       }
-      const v = (snap.val() || {}) as Record<string, any>;
+      const v = (snap.val() || {}) as Record<string, ApiChannel>;
       Object.entries(v).forEach(([id, c]) => {
         store[id] = normalize(id, c);
       });
@@ -145,7 +166,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
 
     const channelUnsubs: Record<string, () => void> = {};
     const ucRef = ref(db, `userChannels/${uid}`);
-    const unsubUC = onValue(ucRef, (snap) => {
+    const unsubUC = onValue(ucRef, (snap: DataSnapshot) => {
       const ids = Object.keys((snap.val() || {}) as Record<string, true>);
       for (const id of Object.keys(channelUnsubs)) {
         if (!ids.includes(id)) {
@@ -157,7 +178,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
       ids.forEach((id) => {
         if (channelUnsubs[id]) return;
         channelUnsubs[id] = onValue(ref(db, `channels/${id}`), (s) => {
-          const c = s.val();
+          const c = s.val() as ApiChannel | null;
           if (!c) {
             if (!store[id]?.public) delete store[id];
           } else {
@@ -189,7 +210,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     const uid = auth.currentUser?.uid;
     const newusersKey = user?.id;
     if (!uid || !newusersKey) return;
-    const updates: Record<string, any> = {};
+    const updates: Record<string, true> = {};
     channels.forEach((c) => {
       const m = c.members || {};
       if (m[uid] && !m[newusersKey]) {
@@ -207,7 +228,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
       return;
     }
     const r = ref(db, `channelMessages/${activeChannelId}`);
-    const unsub = onValue(r, (snap) => {
+    const unsub = onValue(r, (snap: DataSnapshot) => {
       const v = (snap.val() || {}) as Record<
         string,
         {
@@ -246,15 +267,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
       if (!clean)
         throw new Error("Bitte einen gültigen Channel-Namen angeben.");
       const newusersSnap = await get(ref(db, "newusers"));
-      const newusers = (newusersSnap.val() || {}) as Record<
-        string,
-        {
-          newname?: string;
-          newemail?: string;
-          avatar?: string;
-          authUid?: string;
-        }
-      >;
+      const newusers = (newusersSnap.val() || {}) as Record<string, NewUser>;
       const members: Record<string, true> = {};
       members[uid] = true;
       if (user?.id && user.id !== uid) members[user.id] = true;
@@ -263,7 +276,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         members[newusersKey] = true;
       }
       const chRef = push(ref(db, "channels"));
-      const channelId = chRef.key!;
+      const channelId = chRef.key as string;
       await set(chRef, {
         name: clean,
         description: (description || "").trim(),
@@ -272,17 +285,21 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         members,
         public: false,
       });
-      const updates: Record<string, any> = {};
+      const updates: Record<string, true> = {};
       updates[`userChannels/${uid}/${channelId}`] = true;
       for (const u of Object.values(newusers)) {
-        if ((u as any)?.authUid) {
-          updates[`userChannels/${(u as any).authUid}/${channelId}`] = true;
+        if (u?.authUid) {
+          updates[`userChannels/${u.authUid}/${channelId}`] = true;
         }
       }
       await update(ref(db), updates);
       setActiveChannelId(channelId || null);
-    } catch (e: any) {
-      setError(e?.message || "Channel konnte nicht erstellt werden.");
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : "Channel konnte nicht erstellt werden.";
+      setError(msg);
       throw e;
     } finally {
       setLoading(false);

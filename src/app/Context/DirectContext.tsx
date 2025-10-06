@@ -1,3 +1,4 @@
+// src/app/Context/DirectContext.tsx
 "use client";
 
 import {
@@ -20,6 +21,7 @@ import {
   query,
   orderByChild,
   startAt,
+  DataSnapshot,
 } from "firebase/database";
 import { db } from "@/app/lib/firebase";
 import { useUser } from "./UserContext";
@@ -63,6 +65,13 @@ type DirectContextType = {
   clearDM: () => void;
 };
 
+type NewUserMeta = {
+  newname?: string;
+  newemail?: string;
+  avatar?: string;
+  authUid?: string;
+};
+
 const DirectContext = createContext<DirectContextType | undefined>(undefined);
 
 function convIdFromIds(a: string, b: string) {
@@ -71,13 +80,24 @@ function convIdFromIds(a: string, b: string) {
 
 async function loadUserMeta(userId: string) {
   const snap = await get(ref(db, `newusers/${userId}`));
-  const v = snap.val() || {};
+  const v = (snap.val() as NewUserMeta) || {};
   return {
     id: userId,
     name: v.newname || "Unbekannt",
     email: v.newemail || "",
     avatar: v.avatar || "/avatar1.png",
   };
+}
+
+function isDMDbMessage(obj: unknown): obj is DMDbMessage {
+  if (typeof obj !== "object" || obj === null) return false;
+  const o = obj as Record<string, unknown>;
+  return (
+    typeof o.text === "string" &&
+    typeof o.createdAt === "number" &&
+    typeof o.from === "object" &&
+    o.from !== null
+  );
 }
 
 export function DirectProvider({ children }: { children: ReactNode }) {
@@ -103,7 +123,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     setUnreadCounts({});
     if (!user?.id) return;
     const r = ref(db, `dmThreads/${user.id}`);
-    const unsub = onValue(r, (snap) => {
+    const unsub = onValue(r, (snap: DataSnapshot) => {
       const val = (snap.val() || {}) as Record<
         string,
         {
@@ -149,13 +169,12 @@ export function DirectProvider({ children }: { children: ReactNode }) {
               startAt(since)
             )
           : ref(db, `directMessages/${cid}`);
-      const unsub = onValue(qref, (snap) => {
-        const val: Record<string, DMDbMessage | any> = snap.val() || {};
+      const unsub = onValue(qref, (snap: DataSnapshot) => {
+        const val = (snap.val() || {}) as Record<string, unknown>;
         let count = 0;
         for (const m of Object.values(val)) {
-          if (!m || typeof m !== "object") continue;
           if (
-            "text" in m &&
+            isDMDbMessage(m) &&
             m.createdAt > (t.lastReadAt ?? 0) &&
             m.from?.id !== user.id
           ) {
@@ -182,8 +201,8 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     if (!user?.id || !activeDMUserId) return;
     const cid = convIdFromIds(user.id, activeDMUserId);
     const r = ref(db, `directMessages/${cid}`);
-    const unsub = onValue(r, (snap) => {
-      const val: Record<string, DMDbMessage> = snap.val() || {};
+    const unsub = onValue(r, (snap: DataSnapshot) => {
+      const val = (snap.val() || {}) as Record<string, DMDbMessage>;
       const list: ChatMessage[] = Object.entries(val)
         .filter(([id]) => id !== "_participants")
         .map(([id, m]) => ({

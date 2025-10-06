@@ -1,11 +1,13 @@
+// src/app/ResetPass/page.tsx
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { auth } from "@/app/lib/firebase";
 import { sendPasswordResetEmail } from "firebase/auth";
+import Image from "next/image";
+import { FirebaseError } from "firebase/app";
 
 export default function ResetPassword() {
   const router = useRouter();
@@ -26,14 +28,20 @@ export default function ResetPassword() {
     try {
       await sendPasswordResetEmail(auth, email.trim());
       setSent(true);
-    } catch (e: any) {
-      setErr(
-        e?.code === "auth/user-not-found"
-          ? "Es existiert kein Konto mit dieser E-Mail."
-          : e?.code === "auth/invalid-email"
-          ? "Die E-Mail-Adresse ist ungültig."
-          : "E-Mail konnte nicht gesendet werden."
-      );
+    } catch (e: unknown) {
+      const fe = e as FirebaseError | Error;
+      if ("code" in (fe as FirebaseError)) {
+        const code = (fe as FirebaseError).code;
+        setErr(
+          code === "auth/user-not-found"
+            ? "Es existiert kein Konto mit dieser E-Mail."
+            : code === "auth/invalid-email"
+            ? "Die E-Mail-Adresse ist ungültig."
+            : "E-Mail konnte nicht gesendet werden."
+        );
+      } else {
+        setErr("E-Mail konnte nicht gesendet werden.");
+      }
     } finally {
       setLoading(false);
     }
