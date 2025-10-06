@@ -45,7 +45,6 @@ export default function MembersModal({
       aria-label="Mitgliederliste"
     >
       <div className="bg-white w-full max-w-md sm:max-w-lg rounded-2xl sm:rounded-[20px] shadow-[0_20px_60px_rgba(0,0,0,0.18)] overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div className="min-w-0">
             <h3 className="text-lg sm:text-xl font-semibold truncate">
@@ -76,7 +75,6 @@ export default function MembersModal({
           </button>
         </div>
 
-        {/* Suche */}
         <div className="px-5 pt-3 pb-2">
           <div className="relative">
             <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
@@ -108,7 +106,6 @@ export default function MembersModal({
           </div>
         </div>
 
-        {/* Liste */}
         <div className="max-h-[60vh] sm:max-h-[65vh] overflow-y-auto px-3 sm:px-5 py-3 space-y-2">
           {filtered.map((m) => {
             const isSelf = user?.email && m.email && user.email === m.email;
@@ -167,7 +164,6 @@ export default function MembersModal({
           )}
         </div>
 
-        {/* Footer */}
         <div className="px-5 py-4 border-t flex justify-end">
           <button
             type="button"

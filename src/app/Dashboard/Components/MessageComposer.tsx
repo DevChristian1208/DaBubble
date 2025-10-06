@@ -62,7 +62,6 @@ export default function MessageComposer({
 
   const canSend = !disabled && !sending && value.trim().length > 0;
 
-  // Emoji-Picker außerhalb-klick schließen
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!showEmoji) return;
@@ -131,7 +130,6 @@ export default function MessageComposer({
 
   return (
     <div className="flex items-center gap-2 bg-white border border-gray-300 rounded-[18px] md:rounded-[28px] px-3 md:px-5 py-2 md:py-3">
-      {/* Plus (Anhänge) */}
       <button
         type="button"
         onClick={openFileDialog}

@@ -20,10 +20,11 @@ export default function Header({
     router.push("/Login");
   };
 
-  const handleProfile = () => {
-    setDropDown(false);
-    router.push("/Profile");
-  };
+  //*
+  //const handleProfile = () => {
+  //  setDropDown(false);
+  //  router.push("/Profile");
+  //};
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -102,12 +103,14 @@ export default function Header({
 
         {dropDown && (
           <div className="absolute right-0 top-12 w-56 rounded-2xl border bg-white p-6 shadow-2xl flex flex-col gap-6">
+            {/*
             <button
               onClick={handleProfile}
               className="text-2xl font-medium text-left hover:opacity-80 cursor-pointer"
             >
               Profil
             </button>
+        */}
             <button
               onClick={handleLogout}
               className="text-2xl font-medium text-left hover:opacity-80 cursor-pointer"

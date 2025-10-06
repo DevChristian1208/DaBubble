@@ -1,4 +1,3 @@
-// src/app/SelectAvatar/page.tsx
 "use client";
 
 import Image from "next/image";
@@ -8,7 +7,7 @@ import Link from "next/link";
 import { auth, db } from "@/app/lib/firebase";
 import { onAuthStateChanged, updateProfile } from "firebase/auth";
 import { ref, set } from "firebase/database";
-import { useUser } from "../Context/UserContext"; // wie gehabt
+import { useUser } from "../Context/UserContext";
 
 export default function SelectAvatar() {
   const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);

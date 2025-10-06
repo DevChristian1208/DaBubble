@@ -1,3 +1,4 @@
+// src/app/Dashboard/Components/ChatWindow.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -31,17 +32,23 @@ export default function ChatWindow() {
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
+  const isPublicFlag = activeChannel?.public ? 1 : 0;
+
+  const membersKey = useMemo(() => {
+    const m = activeChannel?.members || {};
+    const keys = Object.keys(m);
+    if (keys.length === 0) return "";
+    keys.sort();
+    return keys.join("|");
+  }, [activeChannel?.members]);
+
   useEffect(() => {
-    if (!activeChannel?.members) {
-      setMembers([]);
-      return;
-    }
     let alive = true;
 
     (async () => {
       try {
         const newSnap = await get(ref(db, "newusers"));
-        const newVal = (newSnap.val() || {}) as Record<
+        const allUsers = (newSnap.val() || {}) as Record<
           string,
           {
             newname?: string;
@@ -51,34 +58,43 @@ export default function ChatWindow() {
           }
         >;
 
-        const membersMap = activeChannel.members || {};
-        const arr: Member[] = [];
+        const isPublic = activeChannel?.public === true;
+        const membersMap = activeChannel?.members || {};
 
-        for (const [newusersKey, u] of Object.entries(newVal)) {
-          const isMemberByKey = !!membersMap[newusersKey];
-          const isMemberByAuth = u?.authUid ? !!membersMap[u.authUid] : false;
-          if (isMemberByKey || isMemberByAuth) {
-            arr.push({
-              id: newusersKey,
-              name: u?.newname || "Unbekannt",
-              email: u?.newemail || "",
-              avatar: u?.avatar || "/avatar1.png",
-            });
-          }
-        }
+        let result: Member[] = [];
 
-        const final =
-          arr.length > 0
-            ? arr
-            : Object.entries(newVal).map(([id, u]) => ({
-                id,
+        if (isPublic) {
+          result = Object.entries(allUsers).map(([id, u]) => ({
+            id,
+            name: u?.newname || "Unbekannt",
+            email: u?.newemail || "",
+            avatar: u?.avatar || "/avatar1.png",
+          }));
+        } else if (Object.keys(membersMap).length > 0) {
+          for (const [newusersKey, u] of Object.entries(allUsers)) {
+            const isMemberByKey = !!membersMap[newusersKey];
+            const isMemberByAuth = u?.authUid ? !!membersMap[u.authUid] : false;
+            if (isMemberByKey || isMemberByAuth) {
+              result.push({
+                id: newusersKey,
                 name: u?.newname || "Unbekannt",
                 email: u?.newemail || "",
                 avatar: u?.avatar || "/avatar1.png",
-              }));
+              });
+            }
+          }
+        } else {
+          result = Object.entries(allUsers).map(([id, u]) => ({
+            id,
+            name: u?.newname || "Unbekannt",
+            email: u?.newemail || "",
+            avatar: u?.avatar || "/avatar1.png",
+          }));
+        }
 
-        final.sort((a, b) => a.name.localeCompare(b.name));
-        if (alive) setMembers(final);
+        result.sort((a, b) => a.name.localeCompare(b.name));
+
+        if (alive) setMembers(result);
       } catch (e) {
         console.error("[ChatWindow] Mitglieder laden fehlgeschlagen:", e);
         if (alive) setMembers([]);
@@ -88,11 +104,10 @@ export default function ChatWindow() {
     return () => {
       alive = false;
     };
-  }, [activeChannel?.id, activeChannel?.members]);
+  }, [activeChannel?.id, isPublicFlag, membersKey]);
 
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
   const moreCount = Math.max(0, members.length - topAvatars.length);
-
   const dmMessagesNormalized: ChannelMessage[] = useMemo(() => {
     return (dmMessages as unknown[]).map((m) => {
       const obj = m as {

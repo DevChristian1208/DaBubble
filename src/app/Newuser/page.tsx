@@ -1,22 +1,49 @@
-// src/app/Register/page.tsx
 "use client";
 
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { auth } from "@/app/lib/firebase";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { auth, db } from "@/app/lib/firebase";
+import {
+  createUserWithEmailAndPassword,
+  updateProfile,
+  signInWithEmailAndPassword,
+} from "firebase/auth";
 import { FirebaseError } from "firebase/app";
+import { Eye, EyeOff } from "lucide-react";
+import { ref, set, get, query, orderByChild, equalTo } from "firebase/database";
 
 export default function Register() {
   const [name, setName] = useState("");
   const [email, setMail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [accept, setAccept] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const router = useRouter();
+
+  async function ensureNewusersEntry(
+    uid: string,
+    displayName?: string | null,
+    mail?: string | null
+  ) {
+    const byUid = query(
+      ref(db, "newusers"),
+      orderByChild("authUid"),
+      equalTo(uid)
+    );
+    const snap = await get(byUid);
+    if (snap.exists()) return;
+
+    await set(ref(db, `newusers/${uid}`), {
+      newname: (displayName || mail?.split("@")[0] || "User").trim(),
+      newemail: mail || "",
+      avatar: "/avatar1.png",
+      authUid: uid,
+    });
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +55,8 @@ export default function Register() {
       if (name.trim()) {
         await updateProfile(cred.user, { displayName: name.trim() });
       }
+      await ensureNewusersEntry(cred.user.uid, name, cred.user.email || email);
+
       localStorage.setItem("userEmail", email);
       localStorage.setItem("userName", name);
 
@@ -35,6 +64,7 @@ export default function Register() {
       setMail("");
       setPassword("");
       setAccept(false);
+
       router.push("/SelectAvatar");
     } catch (err: unknown) {
       const code =
@@ -47,15 +77,44 @@ export default function Register() {
           ? (err as { code: string }).code
           : "unknown";
 
-      const msg = err instanceof Error ? err.message : String(err);
+      if (code === "auth/email-already-in-use") {
+        try {
+          const cred = await signInWithEmailAndPassword(auth, email, password);
+          await ensureNewusersEntry(
+            cred.user.uid,
+            cred.user.displayName,
+            cred.user.email
+          );
 
+          localStorage.setItem("userEmail", cred.user.email || email);
+          localStorage.setItem(
+            "userName",
+            cred.user.displayName ||
+              name ||
+              (cred.user.email?.split("@")[0] ?? "")
+          );
+
+          router.push("/SelectAvatar");
+          return;
+        } catch (signInErr) {
+          const msg =
+            signInErr instanceof Error ? signInErr.message : String(signInErr);
+          console.error("Login nach email-already-in-use fehlgeschlagen:", msg);
+          alert(
+            "E-Mail ist bereits registriert. Bitte mit dem Passwort einloggen."
+          );
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
+
+      const msg = err instanceof Error ? err.message : String(err);
       console.error("Registrierung fehlgeschlagen:", code, msg, err);
 
       const friendly =
         code === "auth/operation-not-allowed"
           ? "E-Mail/Passwort-Login ist im Firebase-Backend deaktiviert."
-          : code === "auth/email-already-in-use"
-          ? "Diese E-Mail ist bereits registriert."
           : code === "auth/weak-password"
           ? "Passwort zu schwach (Firebase-Policy)."
           : code === "auth/invalid-email"
@@ -67,6 +126,8 @@ export default function Register() {
           : "Unbekannter Fehler. Details in der Konsole.";
 
       alert(friendly);
+      setLoading(false);
+      return;
     } finally {
       setLoading(false);
     }
@@ -106,6 +167,7 @@ export default function Register() {
               className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
             />
           </div>
 
@@ -118,21 +180,36 @@ export default function Register() {
               className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
               value={email}
               onChange={(e) => setMail(e.target.value)}
+              autoComplete="email"
             />
           </div>
 
-          <div className="flex items-center gap-2 bg-gray-100 px-4 py-3 rounded-full">
+          <div className="flex items-center gap-2 bg-gray-100 px-4 py-3 rounded-full relative">
             <Image src="/lock.png" alt="Passwort" width={24} height={24} />
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               required
               placeholder="Passwort"
-              className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
+              className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100 pr-10"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
               minLength={8}
             />
+
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              onMouseDown={(e) => e.preventDefault()}
+              aria-label={
+                showPassword ? "Passwort verbergen" : "Passwort anzeigen"
+              }
+              aria-pressed={showPassword}
+              title={showPassword ? "Passwort verbergen" : "Passwort anzeigen"}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800 focus:outline-none"
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
           </div>
 
           <div className="flex items-center gap-2 text-sm text-gray-500">

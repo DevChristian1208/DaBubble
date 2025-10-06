@@ -80,9 +80,6 @@ export default function DashboardWrapper({
             }
           }
         }
-
-        // 3) Kein Treffer -> nichts setzen (z. B. frisch anonymer Nutzer)
-        //    Optional: Hier könntest du auch auf /Login oder /Newuser redirecten.
       } catch (err) {
         console.error("Fehler beim Laden des Users:", err);
       }

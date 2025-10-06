@@ -10,7 +10,6 @@ export type Message = {
   user: { name: string; email: string; avatar?: string };
 };
 
-// prüft, ob die Nachricht vom eingeloggten User stammt
 function isOwn(targetEmail: string, meEmail?: string | null) {
   return !!meEmail && targetEmail === meEmail;
 }
@@ -22,7 +21,6 @@ type ParsedAttachment =
 function parseAttachment(text: string): ParsedAttachment | null {
   if (!text.startsWith("ATTACH::")) return null;
   const parts = text.split("::");
-  // ["ATTACH", "image"|"file", "url", "encodedName?"]
   if (parts.length < 3) return null;
   const kind = parts[1] === "image" ? "image" : "file";
   const url = parts[2];
@@ -87,7 +85,6 @@ export default function MessageList({ messages }: { messages: Message[] }) {
                 <span className="ml-1">{formatTime(m.createdAt)}</span>
               </div>
 
-              {/* Inhalt */}
               <div
                 className={`rounded-2xl px-4 py-2 ${
                   mine
@@ -98,7 +95,6 @@ export default function MessageList({ messages }: { messages: Message[] }) {
                 {att ? (
                   att.kind === "image" ? (
                     <a href={att.url} target="_blank" rel="noreferrer">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={att.url}
                         alt={att.name}

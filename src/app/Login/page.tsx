@@ -5,11 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useUser } from "@/app/Context/UserContext";
-
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/app/lib/firebase";
 import { ref, get, query, orderByChild, equalTo } from "firebase/database";
 import { FirebaseError } from "firebase/app";
+import { Eye, EyeOff } from "lucide-react";
 
 type RawUser = {
   newname: string;
@@ -35,7 +35,6 @@ function humanizeAuthError(err: unknown): string {
     };
     return map[err.code] || `Anmeldung fehlgeschlagen: ${err.message}`;
   }
-
   try {
     return `Anmeldung fehlgeschlagen: ${JSON.stringify(err)}`;
   } catch {
@@ -46,26 +45,18 @@ function humanizeAuthError(err: unknown): string {
 export default function Login() {
   const router = useRouter();
   const { setUser } = useUser();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPasswort, setShowPasswort] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
     setLoading(true);
-
-    console.log("[Login] using auth project:", {
-      apiKey: auth.app.options.apiKey,
-      authDomain: auth.app.options.authDomain,
-      projectId: auth.app.options.projectId,
-    });
-
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       const uid = cred.user.uid;
-
       let profile: {
         id: string;
         newname: string;
@@ -124,12 +115,7 @@ export default function Login() {
       router.push("/Dashboard");
     } catch (err) {
       if (err instanceof FirebaseError) {
-        console.error(
-          "[Login] FirebaseError:",
-          err.code,
-          err.message,
-          err.customData
-        );
+        console.error("[Login] FirebaseError:", err.code, err.message);
       } else {
         console.error("[Login] Unknown error:", err);
       }
@@ -138,8 +124,6 @@ export default function Login() {
       setLoading(false);
     }
   };
-
-  const redirecttoAvatar = () => router.push("/SelectAvatar");
 
   return (
     <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
@@ -182,25 +166,42 @@ export default function Login() {
                 placeholder="beispiel@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
                 className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
               />
             </div>
 
-            <div className="flex items-center gap-2 bg-gray-100 px-4 py-3 rounded-full">
+            <div className="flex items-center gap-2 bg-gray-100 px-4 py-3 rounded-full relative">
               <Image src="/lock.png" alt="Passwort" width={20} height={20} />
               <input
-                type="password"
+                type={showPasswort ? "text" : "password"}
                 required
                 placeholder="Passwort"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
+                autoComplete="current-password"
+                className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100 pr-10"
               />
+              <button
+                type="button"
+                onClick={() => setShowPasswort((s) => !s)}
+                onMouseDown={(e) => e.preventDefault()}
+                aria-label={
+                  showPasswort ? "Passwort verbergen" : "Passwort anzeigen"
+                }
+                aria-pressed={showPasswort}
+                title={
+                  showPasswort ? "Passwort verbergen" : "Passwort anzeigen"
+                }
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800 focus:outline-none"
+              >
+                {showPasswort ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
 
             <div className="text-right">
               <Link
-                href="/ResetPass/EmailRes"
+                href="/ResetPass"
                 className="flex justify-center text-sm text-[#5D5FEF] hover:underline"
               >
                 Passwort vergessen?
@@ -232,14 +233,14 @@ export default function Login() {
               >
                 {loading ? "Anmelden..." : "Anmelden"}
               </button>
-
+              {/* Optional: Gäste-Login
               <button
-                onClick={redirecttoAvatar}
+                onClick={() => router.push("/SelectAvatar")}
                 type="button"
                 className="cursor-pointer border border-[#5D5FEF] text-[#5D5FEF] px-6 py-3 rounded-full font-semibold hover:bg-[#f5f5ff]"
               >
                 Gäste-Login
-              </button>
+              </button> */}
             </div>
           </form>
         </div>

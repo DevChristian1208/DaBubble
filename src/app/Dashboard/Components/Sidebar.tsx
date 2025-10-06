@@ -7,6 +7,7 @@ import { useChannel } from "@/app/Context/ChannelContext";
 import { useDirect } from "@/app/Context/DirectContext";
 import { ref, onValue, set } from "firebase/database";
 import { db } from "@/app/lib/firebase";
+import AddChannelModal from "./AddChannelModal";
 
 type SidebarProps = {
   open?: boolean;
@@ -17,13 +18,10 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
   const [showModal, setShowModal] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmsOpen, setDmsOpen] = useState(true);
-
-  // Workspace-Name aus RTDB
   const [workspaceName, setWorkspaceName] = useState("Devspace");
 
   const { user } = useUser();
   const { channels, activeChannelId, setActiveChannelId } = useChannel();
-
   const {
     dmThreads = [],
     startDMWith,
@@ -32,16 +30,12 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
     unreadCounts,
   } = useDirect();
 
-  // Workspace-Namen live lesen
   useEffect(() => {
     const r = ref(db, "workspace/name");
     const unsub = onValue(r, (snap) => {
       const val = snap.val();
-      if (typeof val === "string" && val.trim()) {
-        setWorkspaceName(val);
-      } else {
-        setWorkspaceName("Devspace");
-      }
+      if (typeof val === "string" && val.trim()) setWorkspaceName(val);
+      else setWorkspaceName("Devspace");
     });
     return () => unsub();
   }, []);
@@ -90,16 +84,14 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
     }
   };
 
-  // Reihenfolge der DMs kommt bereits sortiert aus dem Context (lastMessageAt desc)
   const dmList = useMemo(() => dmThreads, [dmThreads]);
 
   return (
     <>
-      {/* Dein AddChannelModal bleibt wie gehabt, der Button unten öffnet es */}
-      {/* <AddChannelModal isOpen={showModal} onClose={() => setShowModal(false)} /> */}
+      {/* WICHTIG: Modal wirklich rendern */}
+      <AddChannelModal isOpen={showModal} onClose={() => setShowModal(false)} />
 
       <div className="relative flex items-stretch h-full">
-        {/* Workspace-Kante */}
         <button
           type="button"
           onClick={handleWorkspaceToggle}
@@ -112,7 +104,6 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
           </span>
         </button>
 
-        {/* Sidebar-Panel */}
         <aside
           className="h-full bg-white flex flex-col justify-start shadow-sm rounded-[20px] overflow-hidden z-10 transition-[width,padding] duration-300 ease-in-out"
           style={{ width: open ? 366 : 0, padding: open ? 30 : 0 }}
@@ -120,7 +111,6 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
         >
           {open && (
             <>
-              {/* Header */}
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2 min-w-0">
                   <Image
@@ -147,7 +137,6 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 </button>
               </div>
 
-              {/* Channels – Header */}
               <div
                 role="button"
                 tabIndex={0}
@@ -173,7 +162,6 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                   <span className="font-bold text-[16px]">Channels</span>
                 </div>
 
-                {/* Dein eigener Modal-Button */}
                 <button
                   type="button"
                   onClick={(e) => {
@@ -187,7 +175,6 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 </button>
               </div>
 
-              {/* Channel-Liste */}
               <ul
                 id="sidebar-channels"
                 className={`space-y-2 mb-6 transition-[max-height,opacity] duration-300 ease-in-out ${
@@ -231,7 +218,6 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 </li>
               </ul>
 
-              {/* Direktnachrichten – Header */}
               <div
                 role="button"
                 tabIndex={0}
@@ -259,7 +245,6 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 <span className="font-bold text-[16px]">Direktnachrichten</span>
               </div>
 
-              {/* DM-Liste */}
               <ul
                 id="sidebar-dms"
                 className={`space-y-2 transition-[max-height,opacity] duration-300 ease-in-out ${
@@ -299,10 +284,6 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="truncate">{t.otherName}</div>
-                          {/* Optional: letzte Aktivität klein anzeigen */}
-                          {/* <div className="text-[11px] text-gray-400">
-                            {t.lastMessageAt ? new Date(t.lastMessageAt).toLocaleString("de-DE") : ""}
-                          </div> */}
                         </div>
                       </button>
                     </li>
