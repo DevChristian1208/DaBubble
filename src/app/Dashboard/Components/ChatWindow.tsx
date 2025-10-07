@@ -6,19 +6,13 @@ import { ref, get } from "firebase/database";
 import { db } from "@/app/lib/firebase";
 import { useChannel } from "@/app/Context/ChannelContext";
 import { useDirect } from "@/app/Context/DirectContext";
+import { useUser } from "@/app/Context/UserContext";
 import MembersModal from "./MembersModal";
 import MessageList from "./MessageList";
 import MessageComposer from "./MessageComposer";
+import type { Message as ChannelMessage } from "@/app/Context/ChannelContext";
 
 type Member = { id: string; name: string; email?: string; avatar?: string };
-
-type NormalizedMsg = {
-  id: string;
-  text: string;
-  createdAt: number | string;
-  user: { name: string; email?: string; avatar?: string };
-  isMine?: boolean;
-};
 
 export default function ChatWindow() {
   const {
@@ -26,7 +20,6 @@ export default function ChatWindow() {
     messages: channelMessages,
     sendMessage,
   } = useChannel();
-
   const {
     activeDMUser,
     activeDMUserId,
@@ -34,23 +27,35 @@ export default function ChatWindow() {
     sendDirectMessage,
     startDMWith,
   } = useDirect();
+  const { user: me } = useUser();
 
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  // Mitglieder laden – robust (channels.members darf /newusers-Key ODER authUid enthalten)
+  // Mitglieder ausschließlich aus channels/<id>/members + newusers
   useEffect(() => {
-    if (!activeChannel?.members) {
-      setMembers([]);
-      return;
-    }
     let alive = true;
 
     (async () => {
+      if (!activeChannel?.id) {
+        if (alive) setMembers([]);
+        return;
+      }
+
       try {
-        // alle Nutzer lesen
-        const snap = await get(ref(db, "newusers"));
-        const all = (snap.val() || {}) as Record<
+        const memSnap = await get(
+          ref(db, `channels/${activeChannel.id}/members`)
+        );
+        const mem = (memSnap.val() || {}) as Record<string, true>;
+        const uids = Object.keys(mem);
+
+        if (uids.length === 0) {
+          if (alive) setMembers([]);
+          return;
+        }
+
+        const newSnap = await get(ref(db, "newusers"));
+        const newVal = (newSnap.val() || {}) as Record<
           string,
           {
             newname?: string;
@@ -60,40 +65,55 @@ export default function ChatWindow() {
           }
         >;
 
-        const membersMap = activeChannel.members || {};
         const arr: Member[] = [];
 
-        for (const [newusersKey, u] of Object.entries(all)) {
-          const isMemberByNewusersKey = !!membersMap[newusersKey];
-          const isMemberByAuthUid = u?.authUid
-            ? !!membersMap[u.authUid]
-            : false;
-
-          if (isMemberByNewusersKey || isMemberByAuthUid) {
+        for (const uid of uids) {
+          // Self-Fallback – sofort richtige Anzeige
+          if (me?.id === uid) {
             arr.push({
-              id: newusersKey,
-              name: u?.newname || "Unbekannt",
-              email: u?.newemail || "",
-              avatar: u?.avatar || "/avatar1.png",
+              id: uid,
+              name: me.name,
+              email: me.email,
+              avatar: me.avatar || "/avatar1.png",
             });
+            continue;
           }
+
+          // authUid-Treffer
+          const viaAuth = Object.values(newVal).find((v) => v?.authUid === uid);
+          if (viaAuth) {
+            arr.push({
+              id: uid,
+              name: viaAuth.newname || "Unbekannt",
+              email: viaAuth.newemail || "",
+              avatar: viaAuth.avatar || "/avatar1.png",
+            });
+            continue;
+          }
+
+          // Key-Treffer (älteres Schema)
+          const byKey = newVal[uid];
+          if (byKey) {
+            arr.push({
+              id: uid,
+              name: byKey.newname || "Unbekannt",
+              email: byKey.newemail || "",
+              avatar: byKey.avatar || "/avatar1.png",
+            });
+            continue;
+          }
+
+          // Nichts gefunden
+          arr.push({
+            id: uid,
+            name: "Unbekannt",
+            email: "",
+            avatar: "/avatar1.png",
+          });
         }
 
-        // falls Arr leer ist (falsche Keys im Channel?), zeige sicherheitshalber alle
-        const final =
-          arr.length > 0
-            ? arr
-            : Object.entries(all).map(([id, u]) => ({
-                id,
-                name: u?.newname || "Unbekannt",
-                email: u?.newemail || "",
-                avatar: u?.avatar || "/avatar1.png",
-              }));
-
-        // sortiere alphabetisch
-        final.sort((a, b) => a.name.localeCompare(b.name));
-
-        if (alive) setMembers(final);
+        arr.sort((a, b) => a.name.localeCompare(b.name));
+        if (alive) setMembers(arr);
       } catch (e) {
         console.error("[ChatWindow] Mitglieder laden fehlgeschlagen:", e);
         if (alive) setMembers([]);
@@ -103,32 +123,26 @@ export default function ChatWindow() {
     return () => {
       alive = false;
     };
-  }, [activeChannel?.id, activeChannel?.members]);
+  }, [activeChannel?.id, me?.id, me?.name, me?.email, me?.avatar]);
 
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
   const moreCount = Math.max(0, members.length - topAvatars.length);
 
-  // ---- DM: defensiv normalisieren (handles m.from fehlend / legacy m.user) ----
-  const dmMessagesNormalized: NormalizedMsg[] = useMemo(() => {
-    return dmMessages.map((m: any) => {
-      const from = m?.from ?? m?.user ?? null;
-      const senderName = from?.name ?? activeDMUser?.name ?? "Unbekannt";
-      const senderEmail = from?.email ?? activeDMUser?.email ?? "";
-      const senderAvatar =
-        from?.avatar ?? activeDMUser?.avatar ?? "/avatar1.png";
-
-      const isMine =
-        typeof from?.email === "string" &&
-        typeof activeDMUser?.email === "string"
-          ? from.email !== activeDMUser.email
-          : undefined;
-
+  const dmMessagesNormalized: ChannelMessage[] = useMemo(() => {
+    return (dmMessages as unknown[]).map((m) => {
+      const obj = m as any;
+      const from = obj?.from ?? obj?.user ?? null;
+      const createdAt =
+        typeof obj?.createdAt === "number" ? obj.createdAt : Date.now();
       return {
-        id: String(m?.id ?? m?.createdAt ?? Math.random()),
-        text: String(m?.text ?? ""),
-        createdAt: m?.createdAt ?? Date.now(),
-        user: { name: senderName, email: senderEmail, avatar: senderAvatar },
-        isMine,
+        id: String(obj?.id ?? createdAt ?? Math.random()),
+        text: String(obj?.text ?? ""),
+        createdAt,
+        user: {
+          name: from?.name ?? activeDMUser?.name ?? "Unbekannt",
+          email: from?.email ?? activeDMUser?.email ?? "",
+          avatar: from?.avatar ?? activeDMUser?.avatar ?? "/avatar1.png",
+        },
       };
     });
   }, [
@@ -138,11 +152,9 @@ export default function ChatWindow() {
     activeDMUser?.avatar,
   ]);
 
-  // ========== DIRECT MESSAGE ==========
   if (activeDMUserId && activeDMUser) {
     return (
       <div className="flex-1 min-h-0 h-full bg-white rounded-[20px] shadow-sm flex flex-col overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
           <div className="flex items-center gap-3">
             <Image
@@ -165,21 +177,17 @@ export default function ChatWindow() {
           </div>
         </div>
 
-        {/* Nachrichten */}
         <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="mx-auto w-full max-w-3xl">
-            <MessageList messages={dmMessagesNormalized as any} />
+            <MessageList messages={dmMessagesNormalized} />
           </div>
         </div>
 
-        {/* Composer */}
         <div className="px-2 sm:px-4 md:px-6 pb-4 sm:pb-5 pt-2 border-t border-gray-200">
           <div className="mx-auto w-full max-w-3xl">
             <MessageComposer
               placeholder={`Nachricht an ${activeDMUser.name}`}
-              onSend={async (text) => {
-                await sendDirectMessage(text);
-              }}
+              onSend={async (text) => await sendDirectMessage(text)}
             />
           </div>
         </div>
@@ -187,12 +195,10 @@ export default function ChatWindow() {
     );
   }
 
-  // ========== CHANNEL ==========
   if (activeChannel) {
     return (
       <>
         <div className="flex-1 min-h-0 h-full bg-white rounded-[20px] shadow-sm flex flex-col overflow-hidden">
-          {/* Header */}
           <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
             <div className="flex items-center gap-2 sm:gap-3">
               <span className="text-lg sm:text-xl md:text-2xl font-extrabold leading-tight">
@@ -205,7 +211,6 @@ export default function ChatWindow() {
               ) : null}
             </div>
 
-            {/* Mitglieder-Pill */}
             <button
               onClick={() => setMembersOpen(true)}
               className="hidden md:flex items-center gap-2 bg-gray-100 hover:bg-gray-200 transition px-3 py-2 rounded-full"
@@ -230,27 +235,22 @@ export default function ChatWindow() {
             </button>
           </div>
 
-          {/* Nachrichten */}
           <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 md:px-6 py-3 md:py-4">
             <div className="mx-auto w-full max-w-3xl">
-              <MessageList messages={channelMessages as any} />
+              <MessageList messages={channelMessages} />
             </div>
           </div>
 
-          {/* Composer */}
           <div className="px-2 sm:px-4 md:px-6 pb-4 sm:pb-5 pt-2 border-t border-gray-200">
             <div className="mx-auto w-full max-w-3xl">
               <MessageComposer
                 placeholder={`Nachricht an #${activeChannel.name}`}
-                onSend={async (text) => {
-                  await sendMessage(text);
-                }}
+                onSend={async (text) => await sendMessage(text)}
               />
             </div>
           </div>
         </div>
 
-        {/* Mitglieder-Modal */}
         <MembersModal
           isOpen={membersOpen}
           onClose={() => setMembersOpen(false)}
@@ -265,7 +265,6 @@ export default function ChatWindow() {
     );
   }
 
-  // ========== Platzhalter =========
   return (
     <div className="flex-1 h-full bg-white rounded-[20px] p-8 sm:p-10 shadow-sm flex items-center justify-center text-center overflow-hidden">
       <div>

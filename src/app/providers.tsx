@@ -13,13 +13,12 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, () => {
-      // egal ob eingeloggt oder nicht: UI darf rendern
       setReady(true);
     });
     return () => unsub();
   }, []);
 
-  if (!ready) return null; // optional: Loader
+  if (!ready) return null;
 
   return (
     <UserProvider>

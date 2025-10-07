@@ -1,4 +1,3 @@
-// src/app/SelectAvatar/page.tsx
 "use client";
 
 import Image from "next/image";
@@ -6,9 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { auth, db } from "@/app/lib/firebase";
-import { onAuthStateChanged, updateProfile } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import { ref, set } from "firebase/database";
-import { useUser } from "../Context/UserContext"; // wie gehabt
+import { useUser } from "../Context/UserContext";
 
 export default function SelectAvatar() {
   const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
@@ -42,46 +41,41 @@ export default function SelectAvatar() {
       }
       setUid(u.uid);
       setEmail(u.email || localStorage.getItem("userEmail") || "");
-      const display = u.displayName || localStorage.getItem("userName") || "";
-      setName(display);
+      setName(u.displayName || localStorage.getItem("userName") || "");
     });
     return () => unsub();
   }, [router]);
 
-  const redirectToDashboard = async () => {
-    if (!isFormComplete || !uid || saving) return;
+  const saveAndGo = async () => {
+    if (!uid || !isFormComplete || saving) return;
     setSaving(true);
-
     const avatar = avatars[selectedAvatar!];
+    const cleanName = name.trim();
 
     try {
-      // DisplayName konsistent halten
-      if (
-        auth.currentUser &&
-        name.trim() &&
-        auth.currentUser.displayName !== name.trim()
-      ) {
-        await updateProfile(auth.currentUser, { displayName: name.trim() });
-      }
+      // 1) newusers/<uid> (mit authUid) – zentrale Quelle für Mitgliederlisten
+      await set(ref(db, `newusers/${uid}`), {
+        authUid: uid,
+        newname: cleanName,
+        newemail: email,
+        avatar,
+      });
 
-      // RTDB: /users/{uid}
+      // 2) users/<uid> (nur für dich selbst zugreifbar)
       await set(ref(db, `users/${uid}`), {
-        name: name.trim(),
+        name: cleanName,
         email,
         avatar,
         createdAt: new Date().toISOString(),
       });
 
-      setUser({ id: uid, name: name.trim(), email, avatar });
-      localStorage.setItem("userId", uid);
-      localStorage.setItem("userEmail", email);
-      localStorage.setItem("userName", name.trim());
-      localStorage.setItem("userAvatar", avatar);
+      // 3) Context aktualisieren
+      setUser({ id: uid, name: cleanName, email, avatar });
 
       router.push("/Dashboard");
-    } catch (err) {
-      console.error(err);
-      alert("Speichern des Avatars fehlgeschlagen. Bitte erneut versuchen.");
+    } catch (e) {
+      console.error("[SelectAvatar] Speichern fehlgeschlagen:", e);
+      alert("Speichern fehlgeschlagen. Bitte erneut versuchen.");
     } finally {
       setSaving(false);
     }
@@ -123,10 +117,7 @@ export default function SelectAvatar() {
             placeholder="Gib deinen Namen ein"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="cursor-pointer w-full max-w-md px-3 py-3 border border-gray-300 rounded-xl shadow-sm
-           bg-white text-base text-gray-900 placeholder-gray-500 placeholder:opacity-100
-           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-           transition appearance-none"
+            className="cursor-pointer w-full max-w-md px-3 py-3 border border-gray-300 rounded-xl shadow-sm bg-white text-base text-gray-900 placeholder-gray-500 placeholder:opacity-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition appearance-none"
           />
 
           <p className="text-sm text-gray-500">Aus der Liste wählen</p>
@@ -156,7 +147,7 @@ export default function SelectAvatar() {
           </div>
 
           <button
-            onClick={redirectToDashboard}
+            onClick={saveAndGo}
             type="button"
             disabled={!isFormComplete || saving}
             className={`cursor-pointer mt-2 w-full py-3 rounded-full text-white text-sm font-semibold ${

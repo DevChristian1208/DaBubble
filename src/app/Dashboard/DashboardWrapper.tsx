@@ -4,21 +4,7 @@ import { useEffect } from "react";
 import { useUser } from "@/app/Context/UserContext";
 import { auth, db } from "@/app/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import {
-  ref,
-  get,
-  query,
-  orderByChild,
-  equalTo,
-  DataSnapshot,
-} from "firebase/database";
-
-type FirebaseUser = {
-  newname: string;
-  newemail: string;
-  avatar?: string;
-  authUid?: string; // <- Wichtig, wenn du es in SelectAvatar mitschreibst
-};
+import { ref, get, query, orderByChild, equalTo } from "firebase/database";
 
 export default function DashboardWrapper({
   children,
@@ -28,63 +14,72 @@ export default function DashboardWrapper({
   const { user, setUser } = useUser();
 
   useEffect(() => {
-    // Wenn User schon gesetzt ist, nichts tun
     if (user?.id) return;
 
     const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) return; // AuthBootstrap sorgt dafür, dass wir hier landen
+      if (!u) return;
 
       try {
-        // 1) Bevorzugt: User via authUid finden (keine LocalStorage-Abhängigkeit)
-        //    -> Stelle sicher, dass du beim Anlegen des Users (SelectAvatar)
-        //       `authUid: auth.currentUser?.uid` mitspeicherst.
+        // 1) newusers/<uid> direkt (neuer Pfad)
+        const byKey = await get(ref(db, `newusers/${u.uid}`));
+        if (byKey.exists()) {
+          const d = byKey.val() as {
+            newname?: string;
+            newemail?: string;
+            avatar?: string;
+          };
+          setUser({
+            id: u.uid,
+            name: d.newname || u.displayName || "Unbekannt",
+            email: d.newemail || u.email || "",
+            avatar: d.avatar || "/avatar1.png",
+          });
+          return;
+        }
+
+        // 2) Fallback: newusers mit authUid == uid (ältere Anlegung)
         const usersRef = ref(db, "newusers");
         const byUid = query(usersRef, orderByChild("authUid"), equalTo(u.uid));
-        const snapByUid: DataSnapshot = await get(byUid);
-
+        const snapByUid = await get(byUid);
         if (snapByUid.exists()) {
-          const obj = snapByUid.val() as Record<string, FirebaseUser>;
-          const [id, data] = Object.entries(obj)[0];
+          const obj = snapByUid.val() as Record<
+            string,
+            { newname?: string; newemail?: string; avatar?: string }
+          >;
+          const data = Object.values(obj)[0];
           setUser({
-            id,
-            name: data.newname,
-            email: data.newemail,
+            id: u.uid,
+            name: data.newname || u.displayName || "Unbekannt",
+            email: data.newemail || u.email || "",
             avatar: data.avatar || "/avatar1.png",
           });
           return;
         }
 
-        // 2) Fallback (kompatibel zu deinem jetzigen Stand):
-        //    Wenn noch kein authUid in der DB existiert, auf alte LocalStorage-Werte zurückgreifen.
-        if (typeof window !== "undefined") {
-          const lsEmail = localStorage.getItem("userEmail");
-          const lsName = localStorage.getItem("userName");
-
-          if (lsEmail && lsName) {
-            // gesamte Liste holen und matchen (wie vorher)
-            const allSnap = await get(usersRef);
-            const all = (allSnap.val() || {}) as Record<string, FirebaseUser>;
-            const found = Object.entries(all).find(
-              ([, v]) => v?.newemail === lsEmail && v?.newname === lsName
-            );
-
-            if (found) {
-              const [id, v] = found;
-              setUser({
-                id,
-                name: v.newname,
-                email: v.newemail,
-                avatar: v.avatar || "/avatar1.png",
-              });
-              return;
-            }
-          }
+        // 3) letzter Fallback: users/<uid>
+        const uSnap = await get(ref(db, `users/${u.uid}`));
+        if (uSnap.exists()) {
+          const d = uSnap.val() as {
+            name?: string;
+            email?: string;
+            avatar?: string;
+          };
+          setUser({
+            id: u.uid,
+            name: d.name || u.displayName || "Unbekannt",
+            email: d.email || u.email || "",
+            avatar: d.avatar || "/avatar1.png",
+          });
+        } else {
+          setUser({
+            id: u.uid,
+            name: u.displayName || "Unbekannt",
+            email: u.email || "",
+            avatar: "/avatar1.png",
+          });
         }
-
-        // 3) Kein Treffer -> nichts setzen (z. B. frisch anonymer Nutzer)
-        //    Optional: Hier könntest du auch auf /Login oder /Newuser redirecten.
       } catch (err) {
-        console.error("Fehler beim Laden des Users:", err);
+        console.error("[DashboardWrapper] Fehler beim Laden des Users:", err);
       }
     });
 

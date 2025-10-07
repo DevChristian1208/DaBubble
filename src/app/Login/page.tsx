@@ -5,21 +5,19 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useUser } from "@/app/Context/UserContext";
-
-// 🔐 Firebase-Auth + RTDB
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/app/lib/firebase";
-import { ref, get, query, orderByChild, equalTo } from "firebase/database";
+import { ref, get, set, query, orderByChild, equalTo } from "firebase/database";
 import { FirebaseError } from "firebase/app";
+import { Eye, EyeOff } from "lucide-react";
 
 type RawUser = {
-  newname: string;
-  newemail: string;
+  newname?: string;
+  newemail?: string;
   avatar?: string;
   authUid?: string;
 };
 
-// 🔎 Hilfsfunktion: Fehlercodes sauber mappen + fallback message
 function humanizeAuthError(err: unknown): string {
   if (err instanceof FirebaseError) {
     const map: Record<string, string> = {
@@ -37,7 +35,6 @@ function humanizeAuthError(err: unknown): string {
     };
     return map[err.code] || `Anmeldung fehlgeschlagen: ${err.message}`;
   }
-  // Unbekannter Fehler-Typ
   try {
     return `Anmeldung fehlgeschlagen: ${JSON.stringify(err)}`;
   } catch {
@@ -48,50 +45,29 @@ function humanizeAuthError(err: unknown): string {
 export default function Login() {
   const router = useRouter();
   const { setUser } = useUser();
-
-  const [email, setEmail] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPasswort, setShowPasswort] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
     setLoading(true);
 
-    // 👀 Diagnose-Hinweise einmalig ins Log
-    console.log("[Login] using auth project:", {
-      apiKey: auth.app.options.apiKey,
-      authDomain: auth.app.options.authDomain,
-      projectId: auth.app.options.projectId,
-      // Hinweis: Zeig keine Passwörter/Secrets im Log.
-    });
-
     try {
-      // 1) Firebase Auth Login (Klartext-Passwort – kein eigenes Hashing)
       const cred = await signInWithEmailAndPassword(auth, email, password);
       const uid = cred.user.uid;
 
-      // 2) Profil in RTDB suchen – bevorzugt via authUid, sonst E-Mail (Altbestand)
-      let profile: {
-        id: string;
-        newname: string;
-        newemail: string;
-        avatar?: string;
-      } | null = null;
-
+      // 1) Versuche Datensatz in /newusers zu finden
       const usersRef = ref(db, "newusers");
       const byUid = query(usersRef, orderByChild("authUid"), equalTo(uid));
       const snapByUid = await get(byUid);
 
+      let data: RawUser | null = null;
       if (snapByUid.exists()) {
         const obj = snapByUid.val() as Record<string, RawUser>;
-        const [id, data] = Object.entries(obj)[0];
-        profile = {
-          id,
-          newname: data.newname,
-          newemail: data.newemail,
-          avatar: data.avatar,
-        };
+        data = Object.values(obj)[0];
       } else {
         const byEmail = query(
           usersRef,
@@ -101,44 +77,44 @@ export default function Login() {
         const snapByEmail = await get(byEmail);
         if (snapByEmail.exists()) {
           const obj = snapByEmail.val() as Record<string, RawUser>;
-          const [id, data] = Object.entries(obj)[0];
-          profile = {
-            id,
-            newname: data.newname,
-            newemail: data.newemail,
-            avatar: data.avatar,
-          };
+          data = Object.values(obj)[0];
         }
       }
 
-      // 3) UserContext setzen (von deiner UI konsumiert)
-      if (profile) {
-        setUser({
-          id: profile.id,
-          name: profile.newname,
-          email: profile.newemail,
-          avatar: profile.avatar || "/avatar1.png",
-        });
-      } else {
-        // Fallback, falls (noch) kein Profil in RTDB existiert
-        setUser({
-          id: uid,
-          name: cred.user.email?.split("@")[0] || "Unbekannt",
-          email: cred.user.email || email,
-          avatar: "/avatar1.png",
+      // 2) Endgültige Felder bestimmen (mit Fallbacks)
+      const finalName =
+        data?.newname ||
+        cred.user.displayName ||
+        email.split("@")[0] ||
+        "Unbekannt";
+      const finalEmail = data?.newemail || cred.user.email || email;
+      const finalAvatar = data?.avatar || "/avatar1.png";
+
+      // 3) UserContext setzen
+      setUser({
+        id: uid,
+        name: finalName,
+        email: finalEmail,
+        avatar: finalAvatar,
+      });
+
+      // 4) **WICHTIG:** Upsert in /newusers/<uid>, falls NICHT vorhanden
+      //    (so findet die Mitgliederliste dich sofort korrekt)
+      const nuRef = ref(db, `newusers/${uid}`);
+      const nuSnap = await get(nuRef);
+      if (!nuSnap.exists()) {
+        await set(nuRef, {
+          authUid: uid,
+          newname: finalName,
+          newemail: finalEmail,
+          avatar: finalAvatar,
         });
       }
 
       router.push("/Dashboard");
     } catch (err) {
-      // 🧨 Ausführliches Logging zur Diagnose
       if (err instanceof FirebaseError) {
-        console.error(
-          "[Login] FirebaseError:",
-          err.code,
-          err.message,
-          err.customData
-        );
+        console.error("[Login] FirebaseError:", err.code, err.message);
       } else {
         console.error("[Login] Unknown error:", err);
       }
@@ -148,13 +124,10 @@ export default function Login() {
     }
   };
 
-  const redirecttoAvatar = () => router.push("/SelectAvatar");
-
-  // ⬇️ Deine UI unverändert
   return (
     <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
       <div className="absolute top-6 left-6 flex items-center gap-2">
-        <Image src="/logo.png" alt="Logo" width={30} height={30} />
+        <Image src="/Logo.png" alt="Logo" width={30} height={30} />
         <span className="text-lg font-bold text-gray-800">DABubble</span>
       </div>
 
@@ -192,25 +165,42 @@ export default function Login() {
                 placeholder="beispiel@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
                 className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
               />
             </div>
 
-            <div className="flex items-center gap-2 bg-gray-100 px-4 py-3 rounded-full">
+            <div className="flex items-center gap-2 bg-gray-100 px-4 py-3 rounded-full relative">
               <Image src="/lock.png" alt="Passwort" width={20} height={20} />
               <input
-                type="password"
+                type={showPasswort ? "text" : "password"}
                 required
                 placeholder="Passwort"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
+                autoComplete="current-password"
+                className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100 pr-10"
               />
+              <button
+                type="button"
+                onClick={() => setShowPasswort((s) => !s)}
+                onMouseDown={(e) => e.preventDefault()}
+                aria-label={
+                  showPasswort ? "Passwort verbergen" : "Passwort anzeigen"
+                }
+                aria-pressed={showPasswort}
+                title={
+                  showPasswort ? "Passwort verbergen" : "Passwort anzeigen"
+                }
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800 focus:outline-none"
+              >
+                {showPasswort ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
 
             <div className="text-right">
               <Link
-                href="/ResetPass/EmailRes"
+                href="/ResetPass"
                 className="flex justify-center text-sm text-[#5D5FEF] hover:underline"
               >
                 Passwort vergessen?
@@ -241,14 +231,6 @@ export default function Login() {
                 disabled={loading}
               >
                 {loading ? "Anmelden..." : "Anmelden"}
-              </button>
-
-              <button
-                onClick={redirecttoAvatar}
-                type="button"
-                className="cursor-pointer border border-[#5D5FEF] text-[#5D5FEF] px-6 py-3 rounded-full font-semibold hover:bg-[#f5f5ff]"
-              >
-                Gäste-Login
               </button>
             </div>
           </form>

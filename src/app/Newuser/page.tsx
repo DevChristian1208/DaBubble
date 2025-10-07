@@ -1,4 +1,3 @@
-// src/app/Register/page.tsx
 "use client";
 
 import { useState } from "react";
@@ -7,11 +6,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth } from "@/app/lib/firebase";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function Register() {
   const [name, setName] = useState("");
   const [email, setMail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [accept, setAccept] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -23,46 +25,31 @@ export default function Register() {
     setLoading(true);
 
     try {
-      // 1) Account via Firebase Auth
       const cred = await createUserWithEmailAndPassword(auth, email, password);
-
-      // 2) Optional: DisplayName direkt am User setzen
       if (name.trim()) {
         await updateProfile(cred.user, { displayName: name.trim() });
       }
 
-      // 3) Für den nächsten Schritt merken (ohne Passwort!)
+      // lokale Prefills
       localStorage.setItem("userEmail", email);
       localStorage.setItem("userName", name);
 
-      // 4) Cleanup & Weiter
-      setName("");
-      setMail("");
-      setPassword("");
-      setAccept(false);
-      router.push("/SelectAvatar");
-    } catch (e: any) {
-      // FirebaseError hat code + message
-      const code = e?.code ?? "unknown";
-      const msg = e?.message ?? String(e);
-      console.error("Registrierung fehlgeschlagen:", code, msg, e);
+      router.push("/SelectAvatar"); // hier wird Profil + RTDB angelegt
+    } catch (err: unknown) {
+      const code = err instanceof FirebaseError ? err.code : "unknown";
 
-      // Quick Mapping für häufige Fälle
       const friendly =
         code === "auth/operation-not-allowed"
           ? "E-Mail/Passwort-Login ist im Firebase-Backend deaktiviert."
           : code === "auth/email-already-in-use"
           ? "Diese E-Mail ist bereits registriert."
           : code === "auth/weak-password"
-          ? "Passwort zu schwach (Firebase-Policy)."
+          ? "Passwort zu schwach."
           : code === "auth/invalid-email"
           ? "E-Mail ungültig."
-          : code === "auth/unauthorized-domain"
-          ? "Deine Domain ist in Firebase Authentication nicht freigegeben."
-          : code?.startsWith("auth/")
-          ? `Firebase-Auth-Fehler: ${code}`
           : "Unbekannter Fehler. Details in der Konsole.";
 
+      console.error("Registrierung fehlgeschlagen:", err);
       alert(friendly);
     } finally {
       setLoading(false);
@@ -90,7 +77,7 @@ export default function Register() {
             Konto erstellen
           </h1>
           <p className="text-center text-gray-600 text-sm">
-            Mit deinem Namen und deiner E-Mail-Adresse hast du dein neues
+            Mit deinem Namen und deiner E-Mail erhältst du dein neues
             DABubble-Konto.
           </p>
 
@@ -103,6 +90,7 @@ export default function Register() {
               className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
             />
           </div>
 
@@ -115,21 +103,33 @@ export default function Register() {
               className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
               value={email}
               onChange={(e) => setMail(e.target.value)}
+              autoComplete="email"
             />
           </div>
 
-          <div className="flex items-center gap-2 bg-gray-100 px-4 py-3 rounded-full">
+          <div className="flex items-center gap-2 bg-gray-100 px-4 py-3 rounded-full relative">
             <Image src="/lock.png" alt="Passwort" width={24} height={24} />
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               required
               placeholder="Passwort"
-              className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100"
+              className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100 pr-10"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
               minLength={8}
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              onMouseDown={(e) => e.preventDefault()}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800"
+              aria-label={
+                showPassword ? "Passwort verbergen" : "Passwort anzeigen"
+              }
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
           </div>
 
           <div className="flex items-center gap-2 text-sm text-gray-500">
@@ -141,7 +141,7 @@ export default function Register() {
               onChange={(e) => setAccept(e.target.checked)}
               className="accent-[#5D5FEF]"
             />
-            <label htmlFor="accept" className="leading-snug">
+            <label htmlFor="accept">
               Ich stimme der{" "}
               <Link
                 href="/ImpressumundDatenschutz/PrivacyPolicy"
@@ -158,7 +158,7 @@ export default function Register() {
             disabled={loading || !accept}
             className={`w-full py-3 rounded-full font-semibold text-white ${
               loading || !accept
-                ? "bg-[#c5c8f5] cursor-not-allowed"
+                ? "bg-[#c5c8f5]"
                 : "bg-[#5D5FEF] hover:bg-[#4b4de0]"
             }`}
           >
@@ -166,7 +166,7 @@ export default function Register() {
           </button>
 
           <p className="text-center text-sm text-gray-600">
-            Du hast schon ein Konto?{" "}
+            Schon ein Konto?{" "}
             <Link
               href="/Login"
               className="text-[#5D5FEF] hover:underline font-medium"
