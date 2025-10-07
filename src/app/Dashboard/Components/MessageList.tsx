@@ -1,4 +1,4 @@
-// app/Dashboard/Components/MessageList.tsx
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import Image from "next/image";
@@ -72,6 +72,7 @@ export default function MessageList({ messages }: { messages: Message[] }) {
             )}
 
             <div className="max-w-[75%]">
+              {/* Kopfzeile */}
               <div
                 className={`text-[12px] mb-1 ${
                   mine ? "text-right text-gray-400" : "text-gray-500"
@@ -95,6 +96,7 @@ export default function MessageList({ messages }: { messages: Message[] }) {
                 {att ? (
                   att.kind === "image" ? (
                     <a href={att.url} target="_blank" rel="noreferrer">
+                      {/* `img` beibehalten: externe URLs ohne next/image Domain-Konfig */}
                       <img
                         src={att.url}
                         alt={att.name}

@@ -1,4 +1,3 @@
-// app/Context/DirectContext.tsx
 "use client";
 
 import {
@@ -71,6 +70,14 @@ function convIdFromIds(a: string, b: string) {
   return [a, b].sort().join("__");
 }
 
+/** Hilfstyp für /newusers */
+type NewUserDb = {
+  authUid?: string;
+  newname?: string;
+  newemail?: string;
+  avatar?: string;
+};
+
 export function DirectProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
   const [activeDMUserId, setActiveDMUserId] = useState<string | null>(null);
@@ -103,15 +110,16 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     threadsRef.current = r;
 
     const unsub = onValue(r, (snap) => {
-      const val = (snap.val() || {}) as Record<
-        string,
-        {
-          otherName?: string;
-          otherAvatar?: string;
-          lastMessageAt?: number;
-          lastReadAt?: number;
-        }
-      >;
+      const val =
+        (snap.val() as Record<
+          string,
+          {
+            otherName?: string;
+            otherAvatar?: string;
+            lastMessageAt?: number;
+            lastReadAt?: number;
+          }
+        > | null) || {};
 
       const list: DMThread[] = Object.entries(val).map(
         ([otherUserId, meta]) => ({
@@ -155,7 +163,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
           : ref(db, `directMessages/${t.convId}`);
 
       const unsub = onValue(qref, (snap) => {
-        const val: Record<string, DMDbMessage> = snap.val() || {};
+        const val = (snap.val() as Record<string, DMDbMessage> | null) || {};
         let count = 0;
         for (const m of Object.values(val)) {
           if (m.createdAt > (t.lastReadAt ?? 0) && m.from?.id !== user.id)
@@ -192,7 +200,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     messagesRef.current = r;
 
     const unsub = onValue(r, (snap) => {
-      const val: Record<string, DMDbMessage> = snap.val() || {};
+      const val = (snap.val() as Record<string, DMDbMessage> | null) || {};
       const list: ChatMessage[] = Object.entries(val).map(([id, m]) => ({
         id,
         text: m.text,
@@ -228,15 +236,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
 
       // Empfänger-Daten aus newusers holen (per authUid)
       const nu = await get(ref(db, "newusers"));
-      const all = (nu.val() || {}) as Record<
-        string,
-        {
-          authUid?: string;
-          newname?: string;
-          newemail?: string;
-          avatar?: string;
-        }
-      >;
+      const all = (nu.val() as Record<string, NewUserDb> | null) || {};
 
       let other = { name: "Unbekannt", email: "", avatar: "/avatar1.png" };
       for (const v of Object.values(all)) {
@@ -286,7 +286,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       let toMeta = activeDMUser;
       if (!toMeta) {
         const nu = await get(ref(db, "newusers"));
-        const all = (nu.val() || {}) as Record<string, any>;
+        const all = (nu.val() as Record<string, NewUserDb> | null) || {};
         for (const v of Object.values(all)) {
           if (v?.authUid === activeDMUserId) {
             toMeta = {

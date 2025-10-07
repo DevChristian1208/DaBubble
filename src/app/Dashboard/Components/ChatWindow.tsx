@@ -13,6 +13,12 @@ import MessageComposer from "./MessageComposer";
 import type { Message as ChannelMessage } from "@/app/Context/ChannelContext";
 
 type Member = { id: string; name: string; email?: string; avatar?: string };
+type NewUserDb = {
+  authUid?: string;
+  newname?: string;
+  newemail?: string;
+  avatar?: string;
+};
 
 export default function ChatWindow() {
   const {
@@ -32,7 +38,7 @@ export default function ChatWindow() {
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  // Mitglieder ausschließlich aus channels/<id>/members + newusers
+  // Mitglieder laden (channels/<id>/members + newusers)
   useEffect(() => {
     let alive = true;
 
@@ -46,29 +52,21 @@ export default function ChatWindow() {
         const memSnap = await get(
           ref(db, `channels/${activeChannel.id}/members`)
         );
-        const mem = (memSnap.val() || {}) as Record<string, true>;
+        const mem = (memSnap.val() as Record<string, true> | null) || {};
         const uids = Object.keys(mem);
-
         if (uids.length === 0) {
           if (alive) setMembers([]);
           return;
         }
 
         const newSnap = await get(ref(db, "newusers"));
-        const newVal = (newSnap.val() || {}) as Record<
-          string,
-          {
-            newname?: string;
-            newemail?: string;
-            avatar?: string;
-            authUid?: string;
-          }
-        >;
+        const newVal =
+          (newSnap.val() as Record<string, NewUserDb> | null) || {};
 
         const arr: Member[] = [];
 
         for (const uid of uids) {
-          // Self-Fallback – sofort richtige Anzeige
+          // Sofort: eigener Datensatz
           if (me?.id === uid) {
             arr.push({
               id: uid,
@@ -79,7 +77,7 @@ export default function ChatWindow() {
             continue;
           }
 
-          // authUid-Treffer
+          // authUid-Match
           const viaAuth = Object.values(newVal).find((v) => v?.authUid === uid);
           if (viaAuth) {
             arr.push({
@@ -91,7 +89,7 @@ export default function ChatWindow() {
             continue;
           }
 
-          // Key-Treffer (älteres Schema)
+          // Key==UID (älteres Schema)
           const byKey = newVal[uid];
           if (byKey) {
             arr.push({
@@ -103,7 +101,6 @@ export default function ChatWindow() {
             continue;
           }
 
-          // Nichts gefunden
           arr.push({
             id: uid,
             name: "Unbekannt",
@@ -128,29 +125,17 @@ export default function ChatWindow() {
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
   const moreCount = Math.max(0, members.length - topAvatars.length);
 
+  // dmMessages ist bereits stark typisiert -> saubere Transformation ohne any
   const dmMessagesNormalized: ChannelMessage[] = useMemo(() => {
-    return (dmMessages as unknown[]).map((m) => {
-      const obj = m as any;
-      const from = obj?.from ?? obj?.user ?? null;
-      const createdAt =
-        typeof obj?.createdAt === "number" ? obj.createdAt : Date.now();
-      return {
-        id: String(obj?.id ?? createdAt ?? Math.random()),
-        text: String(obj?.text ?? ""),
-        createdAt,
-        user: {
-          name: from?.name ?? activeDMUser?.name ?? "Unbekannt",
-          email: from?.email ?? activeDMUser?.email ?? "",
-          avatar: from?.avatar ?? activeDMUser?.avatar ?? "/avatar1.png",
-        },
-      };
-    });
-  }, [
-    dmMessages,
-    activeDMUser?.name,
-    activeDMUser?.email,
-    activeDMUser?.avatar,
-  ]);
+    return dmMessages.map(
+      (m): ChannelMessage => ({
+        id: m.id,
+        text: m.text,
+        createdAt: m.createdAt,
+        user: { ...m.user },
+      })
+    );
+  }, [dmMessages]);
 
   if (activeDMUserId && activeDMUser) {
     return (
