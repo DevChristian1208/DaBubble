@@ -7,13 +7,13 @@ import { useState } from "react";
 import { useUser } from "@/app/Context/UserContext";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/app/lib/firebase";
-import { ref, get, query, orderByChild, equalTo } from "firebase/database";
+import { ref, get, set, query, orderByChild, equalTo } from "firebase/database";
 import { FirebaseError } from "firebase/app";
 import { Eye, EyeOff } from "lucide-react";
 
 type RawUser = {
-  newname: string;
-  newemail: string;
+  newname?: string;
+  newemail?: string;
   avatar?: string;
   authUid?: string;
 };
@@ -54,29 +54,20 @@ export default function Login() {
     e.preventDefault();
     if (!email || !password) return;
     setLoading(true);
+
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       const uid = cred.user.uid;
-      let profile: {
-        id: string;
-        newname: string;
-        newemail: string;
-        avatar?: string;
-      } | null = null;
 
+      // 1) Versuche Datensatz in /newusers zu finden
       const usersRef = ref(db, "newusers");
       const byUid = query(usersRef, orderByChild("authUid"), equalTo(uid));
       const snapByUid = await get(byUid);
 
+      let data: RawUser | null = null;
       if (snapByUid.exists()) {
         const obj = snapByUid.val() as Record<string, RawUser>;
-        const [id, data] = Object.entries(obj)[0];
-        profile = {
-          id,
-          newname: data.newname,
-          newemail: data.newemail,
-          avatar: data.avatar,
-        };
+        data = Object.values(obj)[0];
       } else {
         const byEmail = query(
           usersRef,
@@ -86,29 +77,37 @@ export default function Login() {
         const snapByEmail = await get(byEmail);
         if (snapByEmail.exists()) {
           const obj = snapByEmail.val() as Record<string, RawUser>;
-          const [id, data] = Object.entries(obj)[0];
-          profile = {
-            id,
-            newname: data.newname,
-            newemail: data.newemail,
-            avatar: data.avatar,
-          };
+          data = Object.values(obj)[0];
         }
       }
 
-      if (profile) {
-        setUser({
-          id: profile.id,
-          name: profile.newname,
-          email: profile.newemail,
-          avatar: profile.avatar || "/avatar1.png",
-        });
-      } else {
-        setUser({
-          id: uid,
-          name: cred.user.email?.split("@")[0] || "Unbekannt",
-          email: cred.user.email || email,
-          avatar: "/avatar1.png",
+      // 2) Endgültige Felder bestimmen (mit Fallbacks)
+      const finalName =
+        data?.newname ||
+        cred.user.displayName ||
+        email.split("@")[0] ||
+        "Unbekannt";
+      const finalEmail = data?.newemail || cred.user.email || email;
+      const finalAvatar = data?.avatar || "/avatar1.png";
+
+      // 3) UserContext setzen
+      setUser({
+        id: uid,
+        name: finalName,
+        email: finalEmail,
+        avatar: finalAvatar,
+      });
+
+      // 4) **WICHTIG:** Upsert in /newusers/<uid>, falls NICHT vorhanden
+      //    (so findet die Mitgliederliste dich sofort korrekt)
+      const nuRef = ref(db, `newusers/${uid}`);
+      const nuSnap = await get(nuRef);
+      if (!nuSnap.exists()) {
+        await set(nuRef, {
+          authUid: uid,
+          newname: finalName,
+          newemail: finalEmail,
+          avatar: finalAvatar,
         });
       }
 
@@ -233,14 +232,6 @@ export default function Login() {
               >
                 {loading ? "Anmelden..." : "Anmelden"}
               </button>
-              {/* Optional: Gäste-Login
-              <button
-                onClick={() => router.push("/SelectAvatar")}
-                type="button"
-                className="cursor-pointer border border-[#5D5FEF] text-[#5D5FEF] px-6 py-3 rounded-full font-semibold hover:bg-[#f5f5ff]"
-              >
-                Gäste-Login
-              </button> */}
             </div>
           </form>
         </div>

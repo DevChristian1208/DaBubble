@@ -1,4 +1,3 @@
-// src/app/Dashboard/Components/ChatWindow.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -7,6 +6,7 @@ import { ref, get } from "firebase/database";
 import { db } from "@/app/lib/firebase";
 import { useChannel } from "@/app/Context/ChannelContext";
 import { useDirect } from "@/app/Context/DirectContext";
+import { useUser } from "@/app/Context/UserContext";
 import MembersModal from "./MembersModal";
 import MessageList from "./MessageList";
 import MessageComposer from "./MessageComposer";
@@ -20,7 +20,6 @@ export default function ChatWindow() {
     messages: channelMessages,
     sendMessage,
   } = useChannel();
-
   const {
     activeDMUser,
     activeDMUserId,
@@ -28,27 +27,35 @@ export default function ChatWindow() {
     sendDirectMessage,
     startDMWith,
   } = useDirect();
+  const { user: me } = useUser();
 
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  const isPublicFlag = activeChannel?.public ? 1 : 0;
-
-  const membersKey = useMemo(() => {
-    const m = activeChannel?.members || {};
-    const keys = Object.keys(m);
-    if (keys.length === 0) return "";
-    keys.sort();
-    return keys.join("|");
-  }, [activeChannel?.members]);
-
+  // Mitglieder ausschließlich aus channels/<id>/members + newusers
   useEffect(() => {
     let alive = true;
 
     (async () => {
+      if (!activeChannel?.id) {
+        if (alive) setMembers([]);
+        return;
+      }
+
       try {
+        const memSnap = await get(
+          ref(db, `channels/${activeChannel.id}/members`)
+        );
+        const mem = (memSnap.val() || {}) as Record<string, true>;
+        const uids = Object.keys(mem);
+
+        if (uids.length === 0) {
+          if (alive) setMembers([]);
+          return;
+        }
+
         const newSnap = await get(ref(db, "newusers"));
-        const allUsers = (newSnap.val() || {}) as Record<
+        const newVal = (newSnap.val() || {}) as Record<
           string,
           {
             newname?: string;
@@ -58,43 +65,55 @@ export default function ChatWindow() {
           }
         >;
 
-        const isPublic = activeChannel?.public === true;
-        const membersMap = activeChannel?.members || {};
+        const arr: Member[] = [];
 
-        let result: Member[] = [];
-
-        if (isPublic) {
-          result = Object.entries(allUsers).map(([id, u]) => ({
-            id,
-            name: u?.newname || "Unbekannt",
-            email: u?.newemail || "",
-            avatar: u?.avatar || "/avatar1.png",
-          }));
-        } else if (Object.keys(membersMap).length > 0) {
-          for (const [newusersKey, u] of Object.entries(allUsers)) {
-            const isMemberByKey = !!membersMap[newusersKey];
-            const isMemberByAuth = u?.authUid ? !!membersMap[u.authUid] : false;
-            if (isMemberByKey || isMemberByAuth) {
-              result.push({
-                id: newusersKey,
-                name: u?.newname || "Unbekannt",
-                email: u?.newemail || "",
-                avatar: u?.avatar || "/avatar1.png",
-              });
-            }
+        for (const uid of uids) {
+          // Self-Fallback – sofort richtige Anzeige
+          if (me?.id === uid) {
+            arr.push({
+              id: uid,
+              name: me.name,
+              email: me.email,
+              avatar: me.avatar || "/avatar1.png",
+            });
+            continue;
           }
-        } else {
-          result = Object.entries(allUsers).map(([id, u]) => ({
-            id,
-            name: u?.newname || "Unbekannt",
-            email: u?.newemail || "",
-            avatar: u?.avatar || "/avatar1.png",
-          }));
+
+          // authUid-Treffer
+          const viaAuth = Object.values(newVal).find((v) => v?.authUid === uid);
+          if (viaAuth) {
+            arr.push({
+              id: uid,
+              name: viaAuth.newname || "Unbekannt",
+              email: viaAuth.newemail || "",
+              avatar: viaAuth.avatar || "/avatar1.png",
+            });
+            continue;
+          }
+
+          // Key-Treffer (älteres Schema)
+          const byKey = newVal[uid];
+          if (byKey) {
+            arr.push({
+              id: uid,
+              name: byKey.newname || "Unbekannt",
+              email: byKey.newemail || "",
+              avatar: byKey.avatar || "/avatar1.png",
+            });
+            continue;
+          }
+
+          // Nichts gefunden
+          arr.push({
+            id: uid,
+            name: "Unbekannt",
+            email: "",
+            avatar: "/avatar1.png",
+          });
         }
 
-        result.sort((a, b) => a.name.localeCompare(b.name));
-
-        if (alive) setMembers(result);
+        arr.sort((a, b) => a.name.localeCompare(b.name));
+        if (alive) setMembers(arr);
       } catch (e) {
         console.error("[ChatWindow] Mitglieder laden fehlgeschlagen:", e);
         if (alive) setMembers([]);
@@ -104,34 +123,26 @@ export default function ChatWindow() {
     return () => {
       alive = false;
     };
-  }, [activeChannel?.id, isPublicFlag, membersKey]);
+  }, [activeChannel?.id, me?.id, me?.name, me?.email, me?.avatar]);
 
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
   const moreCount = Math.max(0, members.length - topAvatars.length);
+
   const dmMessagesNormalized: ChannelMessage[] = useMemo(() => {
     return (dmMessages as unknown[]).map((m) => {
-      const obj = m as {
-        id?: string | number;
-        text?: string;
-        createdAt?: number | string;
-        from?: { name?: string; email?: string; avatar?: string };
-        user?: { name?: string; email?: string; avatar?: string };
-      };
-
+      const obj = m as any;
       const from = obj?.from ?? obj?.user ?? null;
-      const senderName = from?.name ?? activeDMUser?.name ?? "Unbekannt";
-      const senderEmail = from?.email ?? activeDMUser?.email ?? "";
-      const senderAvatar =
-        from?.avatar ?? activeDMUser?.avatar ?? "/avatar1.png";
-      const createdAtRaw = obj?.createdAt;
       const createdAt =
-        typeof createdAtRaw === "number" ? createdAtRaw : Date.now();
-
+        typeof obj?.createdAt === "number" ? obj.createdAt : Date.now();
       return {
         id: String(obj?.id ?? createdAt ?? Math.random()),
         text: String(obj?.text ?? ""),
         createdAt,
-        user: { name: senderName, email: senderEmail, avatar: senderAvatar },
+        user: {
+          name: from?.name ?? activeDMUser?.name ?? "Unbekannt",
+          email: from?.email ?? activeDMUser?.email ?? "",
+          avatar: from?.avatar ?? activeDMUser?.avatar ?? "/avatar1.png",
+        },
       };
     });
   }, [
@@ -176,9 +187,7 @@ export default function ChatWindow() {
           <div className="mx-auto w-full max-w-3xl">
             <MessageComposer
               placeholder={`Nachricht an ${activeDMUser.name}`}
-              onSend={async (text) => {
-                await sendDirectMessage(text);
-              }}
+              onSend={async (text) => await sendDirectMessage(text)}
             />
           </div>
         </div>
@@ -236,9 +245,7 @@ export default function ChatWindow() {
             <div className="mx-auto w-full max-w-3xl">
               <MessageComposer
                 placeholder={`Nachricht an #${activeChannel.name}`}
-                onSend={async (text) => {
-                  await sendMessage(text);
-                }}
+                onSend={async (text) => await sendMessage(text)}
               />
             </div>
           </div>

@@ -4,15 +4,10 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { auth, db } from "@/app/lib/firebase";
-import {
-  createUserWithEmailAndPassword,
-  updateProfile,
-  signInWithEmailAndPassword,
-} from "firebase/auth";
+import { auth } from "@/app/lib/firebase";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
 import { Eye, EyeOff } from "lucide-react";
-import { ref, set, get, query, orderByChild, equalTo } from "firebase/database";
 
 export default function Register() {
   const [name, setName] = useState("");
@@ -24,27 +19,6 @@ export default function Register() {
 
   const router = useRouter();
 
-  async function ensureNewusersEntry(
-    uid: string,
-    displayName?: string | null,
-    mail?: string | null
-  ) {
-    const byUid = query(
-      ref(db, "newusers"),
-      orderByChild("authUid"),
-      equalTo(uid)
-    );
-    const snap = await get(byUid);
-    if (snap.exists()) return;
-
-    await set(ref(db, `newusers/${uid}`), {
-      newname: (displayName || mail?.split("@")[0] || "User").trim(),
-      newemail: mail || "",
-      avatar: "/avatar1.png",
-      authUid: uid,
-    });
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!accept || loading) return;
@@ -55,79 +29,28 @@ export default function Register() {
       if (name.trim()) {
         await updateProfile(cred.user, { displayName: name.trim() });
       }
-      await ensureNewusersEntry(cred.user.uid, name, cred.user.email || email);
 
+      // lokale Prefills
       localStorage.setItem("userEmail", email);
       localStorage.setItem("userName", name);
 
-      setName("");
-      setMail("");
-      setPassword("");
-      setAccept(false);
-
-      router.push("/SelectAvatar");
+      router.push("/SelectAvatar"); // hier wird Profil + RTDB angelegt
     } catch (err: unknown) {
-      const code =
-        err instanceof FirebaseError
-          ? err.code
-          : typeof err === "object" &&
-            err !== null &&
-            "code" in err &&
-            typeof (err as { code?: unknown }).code === "string"
-          ? (err as { code: string }).code
-          : "unknown";
-
-      if (code === "auth/email-already-in-use") {
-        try {
-          const cred = await signInWithEmailAndPassword(auth, email, password);
-          await ensureNewusersEntry(
-            cred.user.uid,
-            cred.user.displayName,
-            cred.user.email
-          );
-
-          localStorage.setItem("userEmail", cred.user.email || email);
-          localStorage.setItem(
-            "userName",
-            cred.user.displayName ||
-              name ||
-              (cred.user.email?.split("@")[0] ?? "")
-          );
-
-          router.push("/SelectAvatar");
-          return;
-        } catch (signInErr) {
-          const msg =
-            signInErr instanceof Error ? signInErr.message : String(signInErr);
-          console.error("Login nach email-already-in-use fehlgeschlagen:", msg);
-          alert(
-            "E-Mail ist bereits registriert. Bitte mit dem Passwort einloggen."
-          );
-        } finally {
-          setLoading(false);
-        }
-        return;
-      }
-
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("Registrierung fehlgeschlagen:", code, msg, err);
+      const code = err instanceof FirebaseError ? err.code : "unknown";
 
       const friendly =
         code === "auth/operation-not-allowed"
           ? "E-Mail/Passwort-Login ist im Firebase-Backend deaktiviert."
+          : code === "auth/email-already-in-use"
+          ? "Diese E-Mail ist bereits registriert."
           : code === "auth/weak-password"
-          ? "Passwort zu schwach (Firebase-Policy)."
+          ? "Passwort zu schwach."
           : code === "auth/invalid-email"
           ? "E-Mail ungültig."
-          : code === "auth/unauthorized-domain"
-          ? "Deine Domain ist in Firebase Authentication nicht freigegeben."
-          : code.startsWith("auth/")
-          ? `Firebase-Auth-Fehler: ${code}`
           : "Unbekannter Fehler. Details in der Konsole.";
 
+      console.error("Registrierung fehlgeschlagen:", err);
       alert(friendly);
-      setLoading(false);
-      return;
     } finally {
       setLoading(false);
     }
@@ -154,7 +77,7 @@ export default function Register() {
             Konto erstellen
           </h1>
           <p className="text-center text-gray-600 text-sm">
-            Mit deinem Namen und deiner E-Mail-Adresse hast du dein neues
+            Mit deinem Namen und deiner E-Mail erhältst du dein neues
             DABubble-Konto.
           </p>
 
@@ -196,17 +119,14 @@ export default function Register() {
               autoComplete="new-password"
               minLength={8}
             />
-
             <button
               type="button"
               onClick={() => setShowPassword((s) => !s)}
               onMouseDown={(e) => e.preventDefault()}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800"
               aria-label={
                 showPassword ? "Passwort verbergen" : "Passwort anzeigen"
               }
-              aria-pressed={showPassword}
-              title={showPassword ? "Passwort verbergen" : "Passwort anzeigen"}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800 focus:outline-none"
             >
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
@@ -221,7 +141,7 @@ export default function Register() {
               onChange={(e) => setAccept(e.target.checked)}
               className="accent-[#5D5FEF]"
             />
-            <label htmlFor="accept" className="leading-snug">
+            <label htmlFor="accept">
               Ich stimme der{" "}
               <Link
                 href="/ImpressumundDatenschutz/PrivacyPolicy"
@@ -238,7 +158,7 @@ export default function Register() {
             disabled={loading || !accept}
             className={`w-full py-3 rounded-full font-semibold text-white ${
               loading || !accept
-                ? "bg-[#c5c8f5] cursor-not-allowed"
+                ? "bg-[#c5c8f5]"
                 : "bg-[#5D5FEF] hover:bg-[#4b4de0]"
             }`}
           >
@@ -246,7 +166,7 @@ export default function Register() {
           </button>
 
           <p className="text-center text-sm text-gray-600">
-            Du hast schon ein Konto?{" "}
+            Schon ein Konto?{" "}
             <Link
               href="/Login"
               className="text-[#5D5FEF] hover:underline font-medium"

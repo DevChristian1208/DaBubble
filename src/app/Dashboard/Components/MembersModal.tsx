@@ -1,3 +1,4 @@
+// app/Dashboard/Components/MembersModal.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -19,7 +20,6 @@ export default function MembersModal({
   channelName: string;
   onStartDM: (userId: string) => void;
 }) {
-  // Hooks immer zuerst
   const { user } = useUser();
   const [query, setQuery] = useState("");
 

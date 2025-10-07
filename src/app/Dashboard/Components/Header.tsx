@@ -1,3 +1,4 @@
+// app/Dashboard/Components/Header.tsx
 "use client";
 
 import Image from "next/image";
@@ -19,12 +20,6 @@ export default function Header({
     setDropDown(false);
     router.push("/Login");
   };
-
-  //*
-  //const handleProfile = () => {
-  //  setDropDown(false);
-  //  router.push("/Profile");
-  //};
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -76,6 +71,7 @@ export default function Header({
             width={16}
             height={16}
             className="absolute right-4 top-1/2 -translate-y-1/2"
+            style={{ height: "auto" }}
           />
         </div>
       </div>
@@ -99,18 +95,11 @@ export default function Header({
           height={22}
           className="cursor-pointer"
           onClick={() => setDropDown((prev) => !prev)}
+          style={{ height: "auto" }}
         />
 
         {dropDown && (
           <div className="absolute right-0 top-12 w-56 rounded-2xl border bg-white p-6 shadow-2xl flex flex-col gap-6">
-            {/*
-            <button
-              onClick={handleProfile}
-              className="text-2xl font-medium text-left hover:opacity-80 cursor-pointer"
-            >
-              Profil
-            </button>
-        */}
             <button
               onClick={handleLogout}
               className="text-2xl font-medium text-left hover:opacity-80 cursor-pointer"

@@ -1,3 +1,4 @@
+// app/Dashboard/Components/MessageList.tsx
 "use client";
 
 import Image from "next/image";
@@ -71,7 +72,6 @@ export default function MessageList({ messages }: { messages: Message[] }) {
             )}
 
             <div className="max-w-[75%]">
-              {/* Kopfzeile */}
               <div
                 className={`text-[12px] mb-1 ${
                   mine ? "text-right text-gray-400" : "text-gray-500"

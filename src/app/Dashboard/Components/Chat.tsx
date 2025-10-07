@@ -1,3 +1,4 @@
+// app/Dashboard/Components/Chat.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -36,6 +37,7 @@ export default function ChatApp() {
         </div>
       </div>
 
+      {/* Mobile Drawer */}
       <div
         className={`fixed inset-0 z-40 lg:hidden ${
           sidebarOpen ? "pointer-events-auto" : "pointer-events-none"
