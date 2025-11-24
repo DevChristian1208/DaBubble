@@ -25,6 +25,9 @@ import {
 import { db } from "@/app/lib/firebase";
 import { useUser } from "./UserContext";
 
+/* -----------------------------------------
+ * TYPES
+ * ---------------------------------------*/
 export type ChatMessage = {
   id: string;
   text: string;
@@ -47,6 +50,20 @@ export type DMThread = {
   lastMessageAt?: number;
   lastReadAt?: number;
 };
+
+// meta in db: dmThreads/<uid>/<otherUid>
+type DMThreadMeta = {
+  otherName?: string;
+  otherAvatar?: string;
+  lastMessageAt?: number;
+  lastReadAt?: number;
+};
+
+// entire thread list for one user
+type DMThreadsDb = Record<string, DMThreadMeta>;
+
+// directMessages/<convId>
+type DirectMessagesDb = Record<string, DMDbMessage>;
 
 type DirectContextType = {
   activeDMUserId: string | null;
@@ -98,9 +115,9 @@ export function DirectProvider({ children }: { children: ReactNode }) {
   const isGuest = user?.isGuest === true;
   const dmDisabled = isGuest || !user?.id;
 
-  /* -------------------------------------------------------
+  /* -----------------------------------------
    * THREADS LADEN
-   * ----------------------------------------------------- */
+   * ---------------------------------------*/
   useEffect(() => {
     if (messagesRef.current) {
       off(messagesRef.current);
@@ -120,9 +137,8 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     threadsRef.current = r;
 
     const unsub = onValue(r, (snap) => {
-      const raw = (snap.val() as Record<string, any> | null) || {};
+      const raw = (snap.val() as DMThreadsDb | null) || {};
 
-      // 🔥 FILTER — nie selbst als DM anzeigen & keine undefinierten UIDs
       const entries = Object.entries(raw).filter(
         ([otherUserId]) =>
           otherUserId && otherUserId !== user!.id && otherUserId !== "undefined"
@@ -148,9 +164,9 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     };
   }, [user?.id, dmDisabled]);
 
-  /* -------------------------------------------------------
+  /* -----------------------------------------
    * UNREAD COUNTS
-   * ----------------------------------------------------- */
+   * ---------------------------------------*/
   const unreadListeners = useRef<Record<string, () => void>>({});
   useEffect(() => {
     Object.values(unreadListeners.current).forEach((fn) => fn?.());
@@ -171,12 +187,15 @@ export function DirectProvider({ children }: { children: ReactNode }) {
           : ref(db, `directMessages/${t.convId}`);
 
       const unsub = onValue(qref, (snap) => {
-        const val = (snap.val() as Record<string, DMDbMessage> | null) || {};
+        const val = (snap.val() as DirectMessagesDb | null) || {};
         let count = 0;
-        for (const m of Object.values(val)) {
-          if (m.createdAt > (t.lastReadAt ?? 0) && m.from?.id !== user!.id)
+
+        Object.values(val).forEach((m) => {
+          if (m.createdAt > (t.lastReadAt ?? 0) && m.from.id !== user!.id) {
             count++;
-        }
+          }
+        });
+
         setUnreadCounts((prev) =>
           prev[t.otherUserId] === count
             ? prev
@@ -193,9 +212,9 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     };
   }, [dmThreads, user?.id, dmDisabled]);
 
-  /* -------------------------------------------------------
+  /* -----------------------------------------
    * DM NACHRICHTEN LADEN
-   * ----------------------------------------------------- */
+   * ---------------------------------------*/
   useEffect(() => {
     if (messagesRef.current) {
       off(messagesRef.current);
@@ -211,17 +230,19 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     messagesRef.current = r;
 
     const unsub = onValue(r, (snap) => {
-      const val = (snap.val() as Record<string, DMDbMessage> | null) || {};
+      const val = (snap.val() as DirectMessagesDb | null) || {};
+
       const list: ChatMessage[] = Object.entries(val).map(([id, m]) => ({
         id,
         text: m.text,
         createdAt: m.createdAt,
         user: {
-          name: m.from?.name ?? "Unbekannt",
-          email: m.from?.email ?? "",
-          avatar: m.from?.avatar,
+          name: m.from.name ?? "Unbekannt",
+          email: m.from.email ?? "",
+          avatar: m.from.avatar,
         },
       }));
+
       list.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
       setDmMessages(list);
     });
@@ -240,16 +261,15 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     };
   }, [activeDMUserId, user?.id, dmDisabled]);
 
-  /* -------------------------------------------------------
+  /* -----------------------------------------
    * START DM
-   * ----------------------------------------------------- */
+   * ---------------------------------------*/
   const startDMWith = useCallback(
     async (otherUserId: string) => {
       if (dmDisabled) {
         alert("Direktnachrichten sind nur für registrierte Nutzer verfügbar.");
         return;
       }
-
       if (!user?.id || !otherUserId || user.id === otherUserId) return;
 
       let other = {
@@ -273,7 +293,6 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       setActiveDMUserId(otherUserId);
       setActiveDMUser(other);
 
-      // beidseitige Threads (regelkonform)
       await update(ref(db, `dmThreads/${user.id}/${otherUserId}`), {
         otherName: other.name,
         otherAvatar: other.avatar,
@@ -287,9 +306,9 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     [user, dmDisabled]
   );
 
-  /* -------------------------------------------------------
+  /* -----------------------------------------
    * SEND MESSAGE
-   * ----------------------------------------------------- */
+   * ---------------------------------------*/
   const sendDirectMessage = useCallback(
     async (text: string) => {
       if (dmDisabled) {
@@ -302,7 +321,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       const msg = text.trim();
       if (!msg) return;
 
-      const cid = convIdFromIds(user.id, activeDMUserId);
+      const cid = convIdFromIds(user!.id, activeDMUserId);
       const now = Date.now();
 
       const from = {
@@ -313,6 +332,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       };
 
       let toMeta = activeDMUser;
+
       if (!toMeta) {
         const snap = await get(ref(db, `newusers/${activeDMUserId}`));
         if (snap.exists()) {
@@ -358,9 +378,9 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     [user, activeDMUserId, activeDMUser, dmDisabled]
   );
 
-  /* -------------------------------------------------------
+  /* -----------------------------------------
    * CLEAR DM
-   * ----------------------------------------------------- */
+   * ---------------------------------------*/
   const clearDM = useCallback(() => {
     setActiveDMUserId(null);
     setActiveDMUser(null);

@@ -51,9 +51,9 @@ export default function ChatWindow() {
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  // ----------------------------
-  // Mitglieder laden
-  // ----------------------------
+  /* -------------------------------------------------------
+   * MITGLIEDER LADEN
+   * ----------------------------------------------------- */
   useEffect(() => {
     let alive = true;
 
@@ -76,7 +76,11 @@ export default function ChatWindow() {
           return;
         }
 
-        let userData: Record<string, any> = {};
+        /** 🔥 KORREKTE TYPEN STATT any */
+        let userData:
+          | Record<string, NewUserDb>
+          | Record<string, GuestUserDb>
+          | {} = {};
 
         if (me?.isGuest) {
           const gSnap = await get(ref(db, "guestUsers"));
@@ -99,13 +103,14 @@ export default function ChatWindow() {
             continue;
           }
 
-          const u = userData[uid];
+          const u = (userData as Record<string, GuestUserDb | NewUserDb>)[uid];
 
           if (u) {
             arr.push({
               id: uid,
-              name: u.newname || u.name || "Unbekannt",
-              email: u.newemail || u.email || "",
+              name:
+                ("newname" in u ? u.newname : (u as any).name) || "Unbekannt",
+              email: ("newemail" in u ? u.newemail : (u as any).email) || "",
               avatar: u.avatar || "/avatar1.png",
             });
           } else {
@@ -152,7 +157,9 @@ export default function ChatWindow() {
     );
   }, [dmMessages]);
 
-  // PRIVATCHAT
+  /* -------------------------------------------------------
+   * PRIVATCHAT
+   * ----------------------------------------------------- */
   if (activeDMUserId && activeDMUser) {
     return (
       <div className="flex-1 min-h-0 h-full bg-white rounded-[20px] shadow-sm flex flex-col overflow-hidden">
@@ -196,7 +203,9 @@ export default function ChatWindow() {
     );
   }
 
-  // CHANNEL
+  /* -------------------------------------------------------
+   * CHANNEL CHAT
+   * ----------------------------------------------------- */
   if (activeChannel) {
     return (
       <>
@@ -272,7 +281,9 @@ export default function ChatWindow() {
     );
   }
 
-  // Kein Channel aktiv
+  /* -------------------------------------------------------
+   * FALLBACK
+   * ----------------------------------------------------- */
   return (
     <div className="flex-1 h-full bg-white rounded-[20px] p-8 sm:p-10 shadow-sm flex items-center justify-center text-center overflow-hidden">
       <div>
