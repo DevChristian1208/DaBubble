@@ -31,40 +31,38 @@ function humanizeAuthError(err: unknown): string {
       "auth/network-request-failed":
         "Netzwerkfehler. Prüfe deine Internetverbindung.",
       "auth/configuration-not-found":
-        "Firebase-Auth nicht richtig konfiguriert (API-Key/Domain/Provider).",
+        "Firebase-Auth nicht richtig konfiguriert.",
     };
     return map[err.code] || `Anmeldung fehlgeschlagen: ${err.message}`;
   }
-  try {
-    return `Anmeldung fehlgeschlagen: ${JSON.stringify(err)}`;
-  } catch {
-    return "Anmeldung fehlgeschlagen.";
-  }
+  return "Anmeldung fehlgeschlagen.";
 }
 
 export default function Login() {
   const router = useRouter();
   const { setUser } = useUser();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPasswort, setShowPasswort] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (!email || !password) return;
+
     setLoading(true);
 
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       const uid = cred.user.uid;
 
-      // 1) Versuche Datensatz in /newusers zu finden
       const usersRef = ref(db, "newusers");
       const byUid = query(usersRef, orderByChild("authUid"), equalTo(uid));
       const snapByUid = await get(byUid);
 
       let data: RawUser | null = null;
+
       if (snapByUid.exists()) {
         const obj = snapByUid.val() as Record<string, RawUser>;
         data = Object.values(obj)[0];
@@ -81,48 +79,58 @@ export default function Login() {
         }
       }
 
-      // 2) Endgültige Felder bestimmen (mit Fallbacks)
       const finalName =
-        data?.newname ||
-        cred.user.displayName ||
-        email.split("@")[0] ||
-        "Unbekannt";
+        data?.newname || cred.user.displayName || email.split("@")[0];
       const finalEmail = data?.newemail || cred.user.email || email;
       const finalAvatar = data?.avatar || "/avatar1.png";
 
-      // 3) UserContext setzen
       setUser({
         id: uid,
         name: finalName,
         email: finalEmail,
         avatar: finalAvatar,
+        isGuest: false,
       });
 
-      // 4) **WICHTIG:** Upsert in /newusers/<uid>, falls NICHT vorhanden
-      //    (so findet die Mitgliederliste dich sofort korrekt)
       const nuRef = ref(db, `newusers/${uid}`);
       const nuSnap = await get(nuRef);
+
       if (!nuSnap.exists()) {
         await set(nuRef, {
           authUid: uid,
           newname: finalName,
           newemail: finalEmail,
           avatar: finalAvatar,
+          isGuest: false,
         });
       }
 
       router.push("/Dashboard");
     } catch (err) {
-      if (err instanceof FirebaseError) {
-        console.error("[Login] FirebaseError:", err.code, err.message);
-      } else {
-        console.error("[Login] Unknown error:", err);
-      }
       alert(humanizeAuthError(err));
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  // --------------------------
+  // GÄSTE LOGIN
+  // --------------------------
+  async function handleGuestLogin() {
+    const guestId = "guest_" + crypto.randomUUID();
+
+    setUser({
+      id: guestId,
+      name: "Gast",
+      email: "",
+      avatar: "/avatar1.png",
+      isGuest: true,
+    });
+
+    localStorage.setItem("guestId", guestId);
+
+    router.push("/SelectAvatar");
+  }
 
   return (
     <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
@@ -173,7 +181,7 @@ export default function Login() {
             <div className="flex items-center gap-2 bg-gray-100 px-4 py-3 rounded-full relative">
               <Image src="/lock.png" alt="Passwort" width={20} height={20} />
               <input
-                type={showPasswort ? "text" : "password"}
+                type={showPasswort ? "test" : "password"}
                 required
                 placeholder="Passwort"
                 value={password}
@@ -181,18 +189,12 @@ export default function Login() {
                 autoComplete="current-password"
                 className="bg-transparent flex-1 outline-none md:text-sm text-gray-500 placeholder:opacity-100 pr-10"
               />
+
               <button
                 type="button"
-                onClick={() => setShowPasswort((s) => !s)}
+                onClick={() => setShowPasswort(!showPasswort)}
                 onMouseDown={(e) => e.preventDefault()}
-                aria-label={
-                  showPasswort ? "Passwort verbergen" : "Passwort anzeigen"
-                }
-                aria-pressed={showPasswort}
-                title={
-                  showPasswort ? "Passwort verbergen" : "Passwort anzeigen"
-                }
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800 focus:outline-none"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800"
               >
                 {showPasswort ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
@@ -215,7 +217,7 @@ export default function Login() {
 
             <button
               type="button"
-              className="w-full inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 bg-white px-5 py-3 text-base font-medium text-gray-700 transition hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5D5FEF]/40 appearance-none cursor-pointer"
+              className="w-full inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 bg-white px-5 py-3 text-base font-medium text-gray-700 hover:bg-gray-50"
               onClick={() =>
                 alert("Google-Login ist noch nicht implementiert.")
               }
@@ -231,6 +233,15 @@ export default function Login() {
                 disabled={loading}
               >
                 {loading ? "Anmelden..." : "Anmelden"}
+              </button>
+
+              {/* ---------- GÄSTE LOGIN BUTTON ---------- */}
+              <button
+                type="button"
+                onClick={handleGuestLogin}
+                className="cursor-pointer text-[#5D5FEF] border border-[#5D5FEF] px-6 py-3 rounded-full font-semibold hover:bg-[#5D5FEF] hover:text-white"
+              >
+                Gäste-Login
               </button>
             </div>
           </form>

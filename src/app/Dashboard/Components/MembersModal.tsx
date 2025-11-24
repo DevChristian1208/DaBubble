@@ -1,11 +1,15 @@
-// app/Dashboard/Components/MembersModal.tsx
 "use client";
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
 import { useUser } from "@/app/Context/UserContext";
 
-type Member = { id: string; name: string; email?: string; avatar?: string };
+type Member = {
+  id: string;
+  name: string;
+  email?: string;
+  avatar?: string;
+};
 
 export default function MembersModal({
   isOpen,
@@ -24,9 +28,13 @@ export default function MembersModal({
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
+    //Wenn das Suchfeld geschlossen ist-> gibt leere Liste zurück
     if (!isOpen) return [];
+    //User Eingabe(query) bereinigen
     const q = query.trim().toLowerCase();
+    //Wenn kein Suchtext vorhanden ist -> Zeig alle Mitglieder
     if (!q) return members;
+    //Filtere anhand von Name und Email
     return members.filter((m) => {
       const name = m.name?.toLowerCase() ?? "";
       const mail = m.email?.toLowerCase() ?? "";

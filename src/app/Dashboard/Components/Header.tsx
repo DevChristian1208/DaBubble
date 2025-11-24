@@ -1,25 +1,31 @@
-// app/Dashboard/Components/Header.tsx
 "use client";
 
 import Image from "next/image";
 import { useUser } from "@/app/Context/UserContext";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
+import { signOut } from "firebase/auth";
+import { auth } from "@/app/lib/firebase";
 
 export default function Header({
-  onToggleSidebar,
+  onToggleHeader,
 }: {
-  onToggleSidebar: () => void;
+  onToggleHeader?: () => void;
 }) {
   const { user } = useUser();
   const [dropDown, setDropDown] = useState(false);
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement | null>(null);
 
-  const handleLogout = () => {
-    setDropDown(false);
-    router.push("/Login");
-  };
+  async function handleLogout() {
+    try {
+      setDropDown(false);
+      await signOut(auth);
+      router.push("/Login");
+    } catch (error) {
+      console.log(error);
+    }
+  }
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -27,6 +33,7 @@ export default function Header({
         setDropDown(false);
       }
     }
+
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -36,7 +43,7 @@ export default function Header({
       <div className="flex items-center gap-3 min-w-[120px]">
         <button
           type="button"
-          onClick={onToggleSidebar}
+          onClick={onToggleHeader}
           className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-full bg-white shadow hover:bg-gray-50 active:scale-[0.98] cursor-pointer"
           aria-label="Menü öffnen"
         >
@@ -57,7 +64,6 @@ export default function Header({
           </span>
         </div>
       </div>
-
       <div className="hidden md:flex flex-1 justify-center">
         <div className="relative w-[480px]">
           <input
@@ -75,7 +81,6 @@ export default function Header({
           />
         </div>
       </div>
-
       <div
         className="flex items-center gap-2 font-medium text-sm min-w-[120px] justify-end relative"
         ref={menuRef}

@@ -7,13 +7,13 @@ import {
   useMemo,
   useState,
   ReactNode,
+  useCallback,
 } from "react";
 import { ref, onValue, push, set, get, update } from "firebase/database";
 import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "@/app/lib/firebase";
 import { useUser } from "./UserContext";
 
-/** ==== Typen für DB-Strukturen ==== */
 type ChannelDb = {
   name?: string;
   description?: string;
@@ -27,13 +27,6 @@ type ChannelMessageDb = {
   text: string;
   createdAt?: number;
   user?: { name?: string; email?: string; avatar?: string };
-};
-
-type NewUserDb = {
-  authUid?: string;
-  newname?: string;
-  newemail?: string;
-  avatar?: string;
 };
 
 export type Channel = {
@@ -63,6 +56,7 @@ type ChannelContextType = {
   sendMessage: (text: string) => Promise<void>;
   loading: boolean;
   error: string | null;
+  basePath: string;
 };
 
 const ChannelContext = createContext<ChannelContextType | undefined>(undefined);
@@ -76,21 +70,11 @@ function useAuthReady() {
   return ready;
 }
 
-/** Alle bekannten Auth-UIDs aus /newusers (robust: Key ODER authUid) */
-async function fetchAllAuthUids(): Promise<Record<string, true>> {
-  const snap = await get(ref(db, "newusers"));
-  const v = (snap.val() || {}) as Record<string, NewUserDb>;
-  const out: Record<string, true> = {};
-  for (const [key, u] of Object.entries(v)) {
-    const uid = u?.authUid || key;
-    if (uid) out[uid] = true;
-  }
-  return out;
-}
-
 export function ChannelProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
   const authReady = useAuthReady();
+
+  const basePath = user?.isGuest ? "guestChannels/public" : "channels";
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
@@ -98,13 +82,51 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /** Channels live lesen */
-  useEffect(() => {
-    if (!authReady) return;
+  // -------------------------------------------------------
+  // ✅ AUTO-MEMBER beim LOGIN:
+  //   - Gäste → in alle Gastchannels
+  //   - Registrierte → in alle Channels
+  // -------------------------------------------------------
+  const ensureUserInAllChannels = useCallback(async () => {
+    if (!user?.id) return;
 
-    const r = ref(db, "channels");
-    const unsub = onValue(r, async (snap) => {
+    const targetRoot = user.isGuest ? "guestChannels/public" : "channels";
+
+    try {
+      const chansSnap = await get(ref(db, targetRoot));
+      const chans = (chansSnap.val() || {}) as Record<string, any>;
+
+      if (!chans || Object.keys(chans).length === 0) return;
+
+      const updates: Record<string, true> = {};
+      for (const cid of Object.keys(chans)) {
+        updates[`${targetRoot}/${cid}/members/${user.id}`] = true;
+      }
+
+      await update(ref(db), updates);
+    } catch (e) {
+      console.warn(
+        "[ChannelContext] ensureUserInAllChannels fehlgeschlagen:",
+        e
+      );
+    }
+  }, [user?.id, user?.isGuest]);
+
+  useEffect(() => {
+    if (authReady && user?.id) ensureUserInAllChannels();
+  }, [authReady, ensureUserInAllChannels, user?.id]);
+
+  // --------------------------
+  // CHANNELLISTE LADEN
+  // --------------------------
+  useEffect(() => {
+    if (!authReady || !user?.id) return;
+
+    const r = ref(db, basePath);
+
+    const unsub = onValue(r, (snap) => {
       const raw = (snap.val() || {}) as Record<string, ChannelDb>;
+
       const list: Channel[] = Object.entries(raw)
         .map(([id, c]) => ({
           id,
@@ -127,99 +149,61 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
       ) {
         setActiveChannelId(list[0]?.id || null);
       }
-
-      // Best-Effort: alle bekannten User in alle Channels eintragen
-      try {
-        const all = await fetchAllAuthUids();
-        const updates: Record<string, unknown> = {};
-        for (const ch of list) {
-          const mem = ch.members || {};
-          for (const uid of Object.keys(all)) {
-            if (!mem[uid]) updates[`channels/${ch.id}/members/${uid}`] = true;
-          }
-        }
-        if (Object.keys(updates).length) await update(ref(db), updates);
-      } catch {
-        /* noop */
-      }
     });
 
     return () => unsub();
-  }, [authReady, activeChannelId]);
+  }, [authReady, user?.id, basePath, activeChannelId]);
 
   const activeChannel = useMemo(
     () => channels.find((c) => c.id === activeChannelId) || null,
     [channels, activeChannelId]
   );
 
-  /** Sobald User oder Channels da sind, sich selbst in allen Channels eintragen */
+  // --------------------------
+  // CHANNEL-MESSAGES LADEN
+  // --------------------------
   useEffect(() => {
-    (async () => {
-      if (!user?.id || channels.length === 0) return;
-      const updates: Record<string, unknown> = {};
-      for (const ch of channels) {
-        if (!ch.members?.[user.id]) {
-          updates[`channels/${ch.id}/members/${user.id}`] = true;
-        }
-      }
-      if (Object.keys(updates).length) {
-        try {
-          await update(ref(db), updates);
-        } catch {
-          /* noop */
-        }
-      }
-    })();
-  }, [user?.id, channels]);
+    setMessages([]);
+    if (!activeChannelId || !user?.id) return;
 
-  /** Nachrichten lesen – wartet auf user?.id, setzt Membership vor Listener */
-  useEffect(() => {
-    let offFn: (() => void) | null = null;
+    const r = ref(db, `channelMessages/${basePath}/${activeChannelId}`);
 
-    (async () => {
-      setMessages([]);
-      if (!activeChannelId || !user?.id) return;
+    const unsub = onValue(r, (snap) => {
+      const raw = (snap.val() as Record<string, ChannelMessageDb> | null) || {};
 
-      try {
-        await update(ref(db, `channels/${activeChannelId}/members`), {
-          [user.id]: true,
-        });
+      const list: Message[] = Object.entries(raw)
+        .map(([id, m]) => ({
+          id,
+          text: m.text,
+          createdAt: m.createdAt || 0,
+          user: {
+            name: m.user?.name || "Unbekannt",
+            email: m.user?.email || "",
+            avatar: m.user?.avatar || "/avatar1.png",
+          },
+        }))
+        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
 
-        const r = ref(db, `channelMessages/${activeChannelId}`);
-        const unsub = onValue(r, (snap) => {
-          const raw = (snap.val() || {}) as Record<string, ChannelMessageDb>;
-          const list: Message[] = Object.entries(raw)
-            .map(([id, m]) => ({
-              id,
-              text: m.text,
-              createdAt: m.createdAt || 0,
-              user: {
-                name: m.user?.name || "Unbekannt",
-                email: m.user?.email || "",
-                avatar: m.user?.avatar || "/avatar1.png",
-              },
-            }))
-            .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-          setMessages(list);
-        });
+      setMessages(list);
+    });
 
-        offFn = () => unsub();
-      } catch (e) {
-        console.error("[ChannelContext] Nachrichten lesen fehlgeschlagen:", e);
-      }
-    })();
+    return () => unsub();
+  }, [activeChannelId, user?.id, basePath]);
 
-    return () => {
-      if (offFn) offFn();
-    };
-  }, [activeChannelId, user?.id]);
+  const resolveUid = () => {
+    if (user?.isGuest) return user.id;
+    return auth.currentUser?.uid || null;
+  };
 
-  /** Channel erstellen – alle bekannten User sofort Mitglied */
+  // --------------------------
+  // CHANNEL ERSTELLEN
+  // --------------------------
   const createChannel = async (name: string, description?: string) => {
     setLoading(true);
     setError(null);
+
     try {
-      const uid = auth.currentUser?.uid;
+      const uid = resolveUid();
       if (!uid) throw new Error("Nicht eingeloggt.");
 
       const clean = name
@@ -227,49 +211,71 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         .toLowerCase()
         .replace(/\s+/g, "-")
         .replace(/#/g, "");
-      if (!clean)
-        throw new Error("Bitte einen gültigen Channel-Namen angeben.");
 
-      const members = await fetchAllAuthUids();
-      members[uid] = true;
+      if (!clean) throw new Error("Ungültiger Channel-Name.");
 
-      const chRef = push(ref(db, "channels"));
+      const chRef = push(ref(db, basePath));
+
+      // Basisdaten schreiben
       await set(chRef, {
         name: clean,
         description: (description || "").trim(),
         createdAt: Date.now(),
         createdByEmail: user?.email || "",
-        public: false,
-        members,
+        public: true,
+        members: { [uid]: true },
       });
 
+      // ✅ Mitglieder automatisch:
+      if (user?.isGuest) {
+        const allGuestsSnap = await get(ref(db, "guestUsers"));
+        const allGuests = (allGuestsSnap.val() || {}) as Record<string, any>;
+
+        const membersUpdate: Record<string, true> = {};
+        Object.keys(allGuests).forEach((g) => (membersUpdate[g] = true));
+
+        await update(
+          ref(db, `${basePath}/${chRef.key}/members`),
+          membersUpdate
+        );
+      } else {
+        const allUsersSnap = await get(ref(db, "newusers"));
+        const allUsers = (allUsersSnap.val() || {}) as Record<string, any>;
+
+        const membersUpdate: Record<string, true> = {};
+        Object.keys(allUsers).forEach((u) => (membersUpdate[u] = true));
+
+        await update(
+          ref(db, `${basePath}/${chRef.key}/members`),
+          membersUpdate
+        );
+      }
+
       setActiveChannelId(chRef.key || null);
-    } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : "Channel konnte nicht erstellt werden.";
-      console.error("[ChannelContext] Channel anlegen fehlgeschlagen:", e);
-      setError(msg);
+    } catch (e: any) {
+      console.error("[ChannelContext] Channel erstellen fehlgeschlagen:", e);
+      setError(e.message || "Fehler beim Erstellen.");
       throw e;
     } finally {
       setLoading(false);
     }
   };
 
+  // --------------------------
+  // CHANNEL-MESSAGE SENDEN
+  // --------------------------
   const sendMessage = async (text: string) => {
-    const uid = auth.currentUser?.uid;
+    const uid = resolveUid();
     if (!uid) throw new Error("Nicht eingeloggt.");
     if (!activeChannelId) throw new Error("Kein Channel aktiv.");
 
     const msg = text.trim();
     if (!msg) return;
 
-    await update(ref(db, `channels/${activeChannelId}/members`), {
-      [uid]: true,
-    });
+    const msgRef = push(
+      ref(db, `channelMessages/${basePath}/${activeChannelId}`)
+    );
 
-    const msgRef = push(ref(db, `channelMessages/${activeChannelId}`));
     await set(msgRef, {
       text: msg,
       createdAt: Date.now(),
@@ -293,6 +299,7 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         sendMessage,
         loading,
         error,
+        basePath,
       }}
     >
       {children}
@@ -300,8 +307,8 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export const useChannel = () => {
+export function useChannel() {
   const ctx = useContext(ChannelContext);
   if (!ctx) throw new Error("useChannel must be used within ChannelProvider");
   return ctx;
-};
+}

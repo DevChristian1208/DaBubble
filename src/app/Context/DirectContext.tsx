@@ -70,7 +70,6 @@ function convIdFromIds(a: string, b: string) {
   return [a, b].sort().join("__");
 }
 
-/** Hilfstyp für /newusers */
 type NewUserDb = {
   authUid?: string;
   newname?: string;
@@ -80,6 +79,7 @@ type NewUserDb = {
 
 export function DirectProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
+
   const [activeDMUserId, setActiveDMUserId] = useState<string | null>(null);
   const [activeDMUser, setActiveDMUser] = useState<{
     id: string;
@@ -95,42 +95,47 @@ export function DirectProvider({ children }: { children: ReactNode }) {
   const messagesRef = useRef<ReturnType<typeof ref> | null>(null);
   const threadsRef = useRef<ReturnType<typeof ref> | null>(null);
 
-  // Threads lesen
+  const isGuest = user?.isGuest === true;
+  const dmDisabled = isGuest || !user?.id;
+
+  /* -------------------------------------------------------
+   * THREADS LADEN
+   * ----------------------------------------------------- */
   useEffect(() => {
+    if (messagesRef.current) {
+      off(messagesRef.current);
+      messagesRef.current = null;
+    }
     if (threadsRef.current) {
       off(threadsRef.current);
       threadsRef.current = null;
     }
+
     setDmThreads([]);
     setUnreadCounts({});
 
-    if (!user?.id) return;
+    if (dmDisabled) return;
 
-    const r = ref(db, `dmThreads/${user.id}`);
+    const r = ref(db, `dmThreads/${user!.id}`);
     threadsRef.current = r;
 
     const unsub = onValue(r, (snap) => {
-      const val =
-        (snap.val() as Record<
-          string,
-          {
-            otherName?: string;
-            otherAvatar?: string;
-            lastMessageAt?: number;
-            lastReadAt?: number;
-          }
-        > | null) || {};
+      const raw = (snap.val() as Record<string, any> | null) || {};
 
-      const list: DMThread[] = Object.entries(val).map(
-        ([otherUserId, meta]) => ({
-          convId: convIdFromIds(user.id!, otherUserId),
-          otherUserId,
-          otherName: meta?.otherName || "Unbekannt",
-          otherAvatar: meta?.otherAvatar,
-          lastMessageAt: meta?.lastMessageAt ?? 0,
-          lastReadAt: meta?.lastReadAt ?? 0,
-        })
+      // 🔥 FILTER — nie selbst als DM anzeigen & keine undefinierten UIDs
+      const entries = Object.entries(raw).filter(
+        ([otherUserId]) =>
+          otherUserId && otherUserId !== user!.id && otherUserId !== "undefined"
       );
+
+      const list: DMThread[] = entries.map(([otherUserId, meta]) => ({
+        convId: convIdFromIds(user!.id, otherUserId),
+        otherUserId,
+        otherName: meta?.otherName || "Unbekannt",
+        otherAvatar: meta?.otherAvatar || "/avatar1.png",
+        lastMessageAt: meta?.lastMessageAt ?? 0,
+        lastReadAt: meta?.lastReadAt ?? 0,
+      }));
 
       list.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
       setDmThreads(list);
@@ -141,18 +146,21 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       threadsRef.current = null;
       unsub();
     };
-  }, [user?.id]);
+  }, [user?.id, dmDisabled]);
 
-  // Unread Counter
+  /* -------------------------------------------------------
+   * UNREAD COUNTS
+   * ----------------------------------------------------- */
   const unreadListeners = useRef<Record<string, () => void>>({});
   useEffect(() => {
     Object.values(unreadListeners.current).forEach((fn) => fn?.());
     unreadListeners.current = {};
 
-    if (!user?.id || dmThreads.length === 0) return;
+    if (dmDisabled || dmThreads.length === 0) return;
 
     dmThreads.forEach((t) => {
       const since = (t.lastReadAt ?? 0) + 1;
+
       const qref =
         since > 1
           ? query(
@@ -166,7 +174,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
         const val = (snap.val() as Record<string, DMDbMessage> | null) || {};
         let count = 0;
         for (const m of Object.values(val)) {
-          if (m.createdAt > (t.lastReadAt ?? 0) && m.from?.id !== user.id)
+          if (m.createdAt > (t.lastReadAt ?? 0) && m.from?.id !== user!.id)
             count++;
         }
         setUnreadCounts((prev) =>
@@ -183,19 +191,22 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       Object.values(unreadListeners.current).forEach((fn) => fn?.());
       unreadListeners.current = {};
     };
-  }, [user?.id, dmThreads]);
+  }, [dmThreads, user?.id, dmDisabled]);
 
-  // Nachrichten der aktiven DM
+  /* -------------------------------------------------------
+   * DM NACHRICHTEN LADEN
+   * ----------------------------------------------------- */
   useEffect(() => {
     if (messagesRef.current) {
       off(messagesRef.current);
       messagesRef.current = null;
     }
+
     setDmMessages([]);
 
-    if (!user?.id || !activeDMUserId) return;
+    if (dmDisabled || !activeDMUserId) return;
 
-    const cid = convIdFromIds(user.id, activeDMUserId);
+    const cid = convIdFromIds(user!.id, activeDMUserId);
     const r = ref(db, `directMessages/${cid}`);
     messagesRef.current = r;
 
@@ -215,8 +226,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       setDmMessages(list);
     });
 
-    // gelesen markieren (nur auf meiner Seite)
-    update(ref(db, `dmThreads/${user.id}/${activeDMUserId}`), {
+    update(ref(db, `dmThreads/${user!.id}/${activeDMUserId}`), {
       lastReadAt: Date.now(),
     }).catch(() => {});
 
@@ -228,47 +238,67 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       off(r, "value", unsub);
       messagesRef.current = null;
     };
-  }, [user?.id, activeDMUserId]);
+  }, [activeDMUserId, user?.id, dmDisabled]);
 
+  /* -------------------------------------------------------
+   * START DM
+   * ----------------------------------------------------- */
   const startDMWith = useCallback(
     async (otherUserId: string) => {
+      if (dmDisabled) {
+        alert("Direktnachrichten sind nur für registrierte Nutzer verfügbar.");
+        return;
+      }
+
       if (!user?.id || !otherUserId || user.id === otherUserId) return;
 
-      // Empfänger-Daten aus newusers holen (per authUid)
-      const nu = await get(ref(db, "newusers"));
-      const all = (nu.val() as Record<string, NewUserDb> | null) || {};
+      let other = {
+        id: otherUserId,
+        name: "Unbekannt",
+        email: "",
+        avatar: "/avatar1.png",
+      };
 
-      let other = { name: "Unbekannt", email: "", avatar: "/avatar1.png" };
-      for (const v of Object.values(all)) {
-        if (v?.authUid === otherUserId) {
-          other = {
-            name: v?.newname || "Unbekannt",
-            email: v?.newemail || "",
-            avatar: v?.avatar || "/avatar1.png",
-          };
-          break;
-        }
+      const snap = await get(ref(db, `newusers/${otherUserId}`));
+      if (snap.exists()) {
+        const d = snap.val() as NewUserDb;
+        other = {
+          id: otherUserId,
+          name: d.newname || "Unbekannt",
+          email: d.newemail || "",
+          avatar: d.avatar || "/avatar1.png",
+        };
       }
 
       setActiveDMUserId(otherUserId);
-      setActiveDMUser({ id: otherUserId, ...other });
+      setActiveDMUser(other);
 
-      // Threads separat (keine Root-Updates mehr)
+      // beidseitige Threads (regelkonform)
       await update(ref(db, `dmThreads/${user.id}/${otherUserId}`), {
         otherName: other.name,
         otherAvatar: other.avatar,
       });
+
       await update(ref(db, `dmThreads/${otherUserId}/${user.id}`), {
         otherName: user.name,
         otherAvatar: user.avatar || "/avatar1.png",
       });
     },
-    [user]
+    [user, dmDisabled]
   );
 
+  /* -------------------------------------------------------
+   * SEND MESSAGE
+   * ----------------------------------------------------- */
   const sendDirectMessage = useCallback(
     async (text: string) => {
-      if (!user?.id || !activeDMUserId) throw new Error("Kein DM aktiv.");
+      if (dmDisabled) {
+        alert("Direktnachrichten sind nur für registrierte Nutzer verfügbar.");
+        return;
+      }
+
+      if (!user?.id || !activeDMUserId) return;
+
       const msg = text.trim();
       if (!msg) return;
 
@@ -282,65 +312,60 @@ export function DirectProvider({ children }: { children: ReactNode }) {
         avatar: user.avatar || "/avatar1.png",
       };
 
-      // Empfänger-Metas sicherstellen
       let toMeta = activeDMUser;
       if (!toMeta) {
-        const nu = await get(ref(db, "newusers"));
-        const all = (nu.val() as Record<string, NewUserDb> | null) || {};
-        for (const v of Object.values(all)) {
-          if (v?.authUid === activeDMUserId) {
-            toMeta = {
-              id: activeDMUserId,
-              name: v?.newname || "Unbekannt",
-              email: v?.newemail || "",
-              avatar: v?.avatar || "/avatar1.png",
-            };
-            break;
-          }
-        }
-        if (!toMeta)
+        const snap = await get(ref(db, `newusers/${activeDMUserId}`));
+        if (snap.exists()) {
+          const d = snap.val() as NewUserDb;
+          toMeta = {
+            id: activeDMUserId,
+            name: d.newname || "Unbekannt",
+            email: d.newemail || "",
+            avatar: d.avatar || "/avatar1.png",
+          };
+        } else {
           toMeta = {
             id: activeDMUserId,
             name: "Unbekannt",
             email: "",
             avatar: "/avatar1.png",
           };
+        }
       }
 
       const message: DMDbMessage = {
         text: msg,
         createdAt: now,
         from,
-        to: {
-          id: toMeta.id,
-          name: toMeta.name,
-          email: toMeta.email,
-          avatar: toMeta.avatar,
-        },
+        to: toMeta,
       };
 
       const newRef = push(ref(db, `directMessages/${cid}`));
       await set(newRef, message);
 
-      // Threads für beide Seiten separat updaten
       await update(ref(db, `dmThreads/${user.id}/${activeDMUserId}`), {
         otherName: toMeta.name,
         otherAvatar: toMeta.avatar,
         lastMessageAt: now,
       });
+
       await update(ref(db, `dmThreads/${activeDMUserId}/${user.id}`), {
         otherName: user.name,
         otherAvatar: user.avatar || "/avatar1.png",
         lastMessageAt: now,
       });
     },
-    [user, activeDMUserId, activeDMUser]
+    [user, activeDMUserId, activeDMUser, dmDisabled]
   );
 
+  /* -------------------------------------------------------
+   * CLEAR DM
+   * ----------------------------------------------------- */
   const clearDM = useCallback(() => {
     setActiveDMUserId(null);
     setActiveDMUser(null);
     setDmMessages([]);
+
     if (messagesRef.current) {
       off(messagesRef.current);
       messagesRef.current = null;

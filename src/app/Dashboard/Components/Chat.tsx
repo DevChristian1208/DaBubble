@@ -1,4 +1,3 @@
-// app/Dashboard/Components/Chat.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -10,23 +9,23 @@ export default function ChatApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mql = window.matchMedia("(min-width: 1024px)");
-    setSidebarOpen(mql.matches);
-    const handler = (e: MediaQueryListEvent) => setSidebarOpen(e.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
+    function updateSidebar() {
+      setSidebarOpen(window.innerWidth >= 1024);
+    }
+    updateSidebar();
+    window.addEventListener("resize", updateSidebar);
+
+    return () => window.removeEventListener("resize", updateSidebar);
   }, []);
 
   return (
     <div className="h-screen bg-[#E8E9FF] flex flex-col">
-      <Header onToggleSidebar={() => setSidebarOpen((s) => !s)} />
-
+      <Header onToggleHeader={() => setSidebarOpen((prev) => !prev)} />
       <div className="flex flex-1 min-h-0 pt-4 md:pt-[30px] pb-5 items-stretch gap-3 md:gap-[20px]">
         <div className="hidden lg:block">
           <Sidebar
             open={sidebarOpen}
-            onToggle={() => setSidebarOpen((s) => !s)}
+            onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
           />
         </div>
 
@@ -37,7 +36,6 @@ export default function ChatApp() {
         </div>
       </div>
 
-      {/* Mobile Drawer */}
       <div
         className={`fixed inset-0 z-40 lg:hidden ${
           sidebarOpen ? "pointer-events-auto" : "pointer-events-none"
@@ -54,7 +52,7 @@ export default function ChatApp() {
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <Sidebar open={true} onToggle={() => setSidebarOpen(false)} />
+          <Sidebar open={true} onToggleSidebar={() => setSidebarOpen(false)} />
         </div>
       </div>
     </div>

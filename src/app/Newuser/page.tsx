@@ -5,6 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth } from "@/app/lib/firebase";
+// Die beiden Funktionen arbeiten nur in der FB Auth und nicht in der RD
+//createUserWithEmailAndPassword -> erstellt neuen User in der Auth mit auth (UID), email und pw
+//updateProfile setzt displayname in Auth
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
 import { Eye, EyeOff } from "lucide-react";
@@ -19,22 +22,21 @@ export default function Register() {
 
   const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!accept || loading) return;
     setLoading(true);
 
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
-      if (name.trim()) {
+      if (name.trim() !== "") {
         await updateProfile(cred.user, { displayName: name.trim() });
       }
 
-      // lokale Prefills
       localStorage.setItem("userEmail", email);
       localStorage.setItem("userName", name);
 
-      router.push("/SelectAvatar"); // hier wird Profil + RTDB angelegt
+      router.push("/SelectAvatar");
     } catch (err: unknown) {
       const code = err instanceof FirebaseError ? err.code : "unknown";
 
@@ -54,12 +56,12 @@ export default function Register() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
       <div className="absolute top-6 left-6 flex items-center gap-2">
-        <Image src="/logo.png" alt="Logo" width={30} height={30} />
+        <Image src="/Logo.png" alt="Logo" width={30} height={30} />
         <span className="text-lg font-bold text-gray-800">DABubble</span>
       </div>
 
@@ -121,7 +123,7 @@ export default function Register() {
             />
             <button
               type="button"
-              onClick={() => setShowPassword((s) => !s)}
+              onClick={() => setShowPassword((show) => !show)}
               onMouseDown={(e) => e.preventDefault()}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800"
               aria-label={

@@ -2,31 +2,45 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useChannel } from "@/app/Context/ChannelContext";
+import { ref, set } from "firebase/database";
+import { db } from "@/app/lib/firebase";
 
-export default function AddChannelModal({
+export default function RenameWorkspaceModal({
   isOpen,
+  currentName,
   onClose,
 }: {
   isOpen: boolean;
+  currentName: string;
   onClose: () => void;
 }) {
-  const { createChannel, loading, error } = useChannel();
-  const [name, setName] = useState("");
-  const [desc, setDesc] = useState("");
   const [mounted, setMounted] = useState(false);
-
+  const [name, setName] = useState(currentName);
+  const [loading, setLoading] = useState(false);
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    if (isOpen) setName(currentName);
+  }, [isOpen, currentName]);
 
-  async function submit() {
-    if (!name.trim()) return;
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    if (isOpen) window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isOpen, onClose]);
+
+  const save = async () => {
+    if (!name.trim() || loading) return;
+    setLoading(true);
     try {
-      await createChannel(name, desc);
-      setName("");
-      setDesc("");
+      await set(ref(db, "workspace/name"), name.trim());
       onClose();
-    } catch {}
-  }
+    } catch {
+      alert("Fehler beim Speichern");
+    }
+    setLoading(false);
+  };
 
   if (!isOpen || !mounted) return null;
 
@@ -35,7 +49,7 @@ export default function AddChannelModal({
       className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={(e) => e.currentTarget === e.target && onClose()}
     >
-      <div className="bg-white w-full max-w-[872px] rounded-[24px] p-6 sm:p-8 shadow-2xl relative">
+      <div className="bg-white w-full max-w-[600px] rounded-[24px] p-6 sm:p-8 shadow-2xl relative">
         <button
           onClick={onClose}
           className="absolute top-5 right-5 text-2xl font-bold text-gray-500 hover:text-gray-700 cursor-pointer"
@@ -45,37 +59,20 @@ export default function AddChannelModal({
         </button>
 
         <h2 className="text-xl sm:text-2xl font-semibold mb-2">
-          Channel erstellen
+          Workspace umbenennen
         </h2>
         <p className="text-sm text-gray-600 mb-6">
-          Lege einen themenbezogenen Channel an – z. B.{" "}
-          <span className="font-medium text-[#5D5FEF]">#marketing</span>.
+          Gib einen neuen Namen für deinen Workspace ein.
         </p>
 
-        <label className="block font-medium text-sm mb-1">Channel-Name</label>
-        <div className="flex items-center border border-gray-300 rounded-full px-4 py-2">
-          <span className="text-gray-400 mr-2">#</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            type="text"
-            placeholder="z. B. kooperationsprojekte"
-            className="w-full outline-none text-sm"
-          />
-        </div>
-
-        <label className="block font-medium text-sm mt-5 mb-1">
-          Beschreibung <span className="text-gray-400">(optional)</span>
-        </label>
+        <label className="block font-medium text-sm mb-1">Neuer Name</label>
         <input
-          value={desc}
-          onChange={(e) => setDesc(e.target.value)}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
           type="text"
-          placeholder="Dein Text hier"
+          placeholder="z. B. Devspace"
           className="w-full border border-gray-300 rounded-full px-4 py-2 text-sm outline-none"
         />
-
-        {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
 
         <div className="mt-8 flex justify-end gap-3">
           <button
@@ -84,12 +81,13 @@ export default function AddChannelModal({
           >
             Abbrechen
           </button>
+
           <button
-            onClick={submit}
+            onClick={save}
             disabled={loading || !name.trim()}
             className="bg-[#5D5FEF] disabled:opacity-60 text-white px-6 py-2 rounded-full font-semibold hover:bg-[#4a4cdb] transition cursor-pointer"
           >
-            {loading ? "Erstelle…" : "Erstellen"}
+            {loading ? "Speichert…" : "Speichern"}
           </button>
         </div>
       </div>

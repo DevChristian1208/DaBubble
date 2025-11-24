@@ -13,11 +13,21 @@ import MessageComposer from "./MessageComposer";
 import type { Message as ChannelMessage } from "@/app/Context/ChannelContext";
 
 type Member = { id: string; name: string; email?: string; avatar?: string };
+
 type NewUserDb = {
-  authUid?: string;
-  newname?: string;
-  newemail?: string;
-  avatar?: string;
+  authUid: string;
+  newname: string;
+  newemail: string;
+  avatar: string;
+};
+
+type GuestUserDb = {
+  id: string;
+  newname: string;
+  newemail: string;
+  avatar: string;
+  isGuest: boolean;
+  createdAt?: number;
 };
 
 export default function ChatWindow() {
@@ -25,7 +35,9 @@ export default function ChatWindow() {
     activeChannel,
     messages: channelMessages,
     sendMessage,
+    basePath,
   } = useChannel();
+
   const {
     activeDMUser,
     activeDMUserId,
@@ -33,12 +45,15 @@ export default function ChatWindow() {
     sendDirectMessage,
     startDMWith,
   } = useDirect();
+
   const { user: me } = useUser();
 
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  // Mitglieder laden (channels/<id>/members + newusers)
+  // ----------------------------
+  // Mitglieder laden
+  // ----------------------------
   useEffect(() => {
     let alive = true;
 
@@ -50,23 +65,30 @@ export default function ChatWindow() {
 
       try {
         const memSnap = await get(
-          ref(db, `channels/${activeChannel.id}/members`)
+          ref(db, `${basePath}/${activeChannel.id}/members`)
         );
+
         const mem = (memSnap.val() as Record<string, true> | null) || {};
         const uids = Object.keys(mem);
+
         if (uids.length === 0) {
           if (alive) setMembers([]);
           return;
         }
 
-        const newSnap = await get(ref(db, "newusers"));
-        const newVal =
-          (newSnap.val() as Record<string, NewUserDb> | null) || {};
+        let userData: Record<string, any> = {};
+
+        if (me?.isGuest) {
+          const gSnap = await get(ref(db, "guestUsers"));
+          userData = (gSnap.val() as Record<string, GuestUserDb> | null) || {};
+        } else {
+          const nSnap = await get(ref(db, "newusers"));
+          userData = (nSnap.val() as Record<string, NewUserDb> | null) || {};
+        }
 
         const arr: Member[] = [];
 
         for (const uid of uids) {
-          // Sofort: eigener Datensatz
           if (me?.id === uid) {
             arr.push({
               id: uid,
@@ -77,36 +99,23 @@ export default function ChatWindow() {
             continue;
           }
 
-          // authUid-Match
-          const viaAuth = Object.values(newVal).find((v) => v?.authUid === uid);
-          if (viaAuth) {
+          const u = userData[uid];
+
+          if (u) {
             arr.push({
               id: uid,
-              name: viaAuth.newname || "Unbekannt",
-              email: viaAuth.newemail || "",
-              avatar: viaAuth.avatar || "/avatar1.png",
+              name: u.newname || u.name || "Unbekannt",
+              email: u.newemail || u.email || "",
+              avatar: u.avatar || "/avatar1.png",
             });
-            continue;
-          }
-
-          // Key==UID (älteres Schema)
-          const byKey = newVal[uid];
-          if (byKey) {
+          } else {
             arr.push({
               id: uid,
-              name: byKey.newname || "Unbekannt",
-              email: byKey.newemail || "",
-              avatar: byKey.avatar || "/avatar1.png",
+              name: "Unbekannt",
+              email: "",
+              avatar: "/avatar1.png",
             });
-            continue;
           }
-
-          arr.push({
-            id: uid,
-            name: "Unbekannt",
-            email: "",
-            avatar: "/avatar1.png",
-          });
         }
 
         arr.sort((a, b) => a.name.localeCompare(b.name));
@@ -120,12 +129,18 @@ export default function ChatWindow() {
     return () => {
       alive = false;
     };
-  }, [activeChannel?.id, me?.id, me?.name, me?.email, me?.avatar]);
+  }, [
+    activeChannel?.id,
+    basePath,
+    me?.id,
+    me?.name,
+    me?.email,
+    me?.avatar,
+    me?.isGuest,
+  ]);
 
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
-  const moreCount = Math.max(0, members.length - topAvatars.length);
 
-  // dmMessages ist bereits stark typisiert -> saubere Transformation ohne any
   const dmMessagesNormalized: ChannelMessage[] = useMemo(() => {
     return dmMessages.map(
       (m): ChannelMessage => ({
@@ -137,6 +152,7 @@ export default function ChatWindow() {
     );
   }, [dmMessages]);
 
+  // PRIVATCHAT
   if (activeDMUserId && activeDMUser) {
     return (
       <div className="flex-1 min-h-0 h-full bg-white rounded-[20px] shadow-sm flex flex-col overflow-hidden">
@@ -180,6 +196,7 @@ export default function ChatWindow() {
     );
   }
 
+  // CHANNEL
   if (activeChannel) {
     return (
       <>
@@ -214,8 +231,7 @@ export default function ChatWindow() {
                 ))}
               </div>
               <span className="text-xs md:text-sm text-gray-700">
-                {members.length}
-                {moreCount > 0 ? ` (+${moreCount})` : ""} Mitglieder
+                {members.length} Mitglieder
               </span>
             </button>
           </div>
@@ -242,6 +258,12 @@ export default function ChatWindow() {
           members={members}
           channelName={activeChannel.name}
           onStartDM={(userId) => {
+            if (me?.isGuest) {
+              alert(
+                "Direktnachrichten sind nur für registrierte Nutzer verfügbar. Bitte registriere dich."
+              );
+              return;
+            }
             startDMWith(userId);
             setMembersOpen(false);
           }}
@@ -250,11 +272,12 @@ export default function ChatWindow() {
     );
   }
 
+  // Kein Channel aktiv
   return (
     <div className="flex-1 h-full bg-white rounded-[20px] p-8 sm:p-10 shadow-sm flex items-center justify-center text-center overflow-hidden">
       <div>
         <Image
-          src="/Logo (1).png"
+          src="/Logo.png"
           alt="DABubble Logo"
           width={90}
           height={90}

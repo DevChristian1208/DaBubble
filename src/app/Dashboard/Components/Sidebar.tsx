@@ -5,23 +5,30 @@ import Image from "next/image";
 import { useUser } from "@/app/Context/UserContext";
 import { useChannel } from "@/app/Context/ChannelContext";
 import { useDirect } from "@/app/Context/DirectContext";
-import { ref, onValue, set } from "firebase/database";
+import { ref, onValue } from "firebase/database";
 import { db } from "@/app/lib/firebase";
 import AddChannelModal from "./AddChannelModal";
+import RenameWorkspaceModal from "./RenameWorkspaceModal";
 
 type SidebarProps = {
   open?: boolean;
-  onToggle?: () => void;
+  onToggleSidebar: () => void;
 };
 
-export default function Sidebar({ open = true, onToggle }: SidebarProps) {
+export default function Sidebar({
+  open = true,
+  onToggleSidebar,
+}: SidebarProps) {
   const [showModal, setShowModal] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmsOpen, setDmsOpen] = useState(true);
   const [workspaceName, setWorkspaceName] = useState("Devspace");
+  const [renameOpen, setRenameOpen] = useState(false);
 
   const { user } = useUser();
   const { channels, activeChannelId, setActiveChannelId } = useChannel();
+
+  // ❗ DirectContext reagiert automatisch für Gäste → zeigt einfach leere DM-Liste
   const {
     dmThreads = [],
     startDMWith,
@@ -30,6 +37,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
     unreadCounts,
   } = useDirect();
 
+  // Workspace Name laden
   useEffect(() => {
     const r = ref(db, "workspace/name");
     const unsub = onValue(r, (snap) => {
@@ -40,26 +48,9 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
     return () => unsub();
   }, []);
 
-  const handleRenameWorkspace = async () => {
-    const next = prompt(
-      "Neuen Workspace-Namen eingeben:",
-      workspaceName
-    )?.trim();
-    if (!next) return;
-    try {
-      await set(ref(db, "workspace/name"), next);
-      setWorkspaceName(next);
-    } catch (e) {
-      console.error("Workspace-Name konnte nicht gespeichert werden:", e);
-      alert("Speichern fehlgeschlagen.");
-    }
-  };
-
-  const handleWorkspaceToggle = () => onToggle?.();
-
   const closeOnMobile = () => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
-      onToggle?.();
+      onToggleSidebar?.();
     }
   };
 
@@ -70,6 +61,11 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
   };
 
   const handleOpenDM = (otherUserId: string) => {
+    // 🚫 Gäste können keine DMs öffnen
+    if (user?.isGuest) {
+      alert("Dieses Feature ist nur für registrierte Nutzer verfügbar.");
+      return;
+    }
     startDMWith(otherUserId);
     closeOnMobile();
   };
@@ -88,13 +84,17 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
 
   return (
     <>
-      {/* WICHTIG: Modal wirklich rendern */}
       <AddChannelModal isOpen={showModal} onClose={() => setShowModal(false)} />
+      <RenameWorkspaceModal
+        isOpen={renameOpen}
+        currentName={workspaceName}
+        onClose={() => setRenameOpen(false)}
+      />
 
       <div className="relative flex items-stretch h-full">
         <button
           type="button"
-          onClick={handleWorkspaceToggle}
+          onClick={onToggleSidebar}
           aria-label="Workspace-Menü umschalten"
           aria-pressed={open}
           className="cursor-pointer mr-[15px] hidden lg:flex select-none items-center justify-center bg-white shadow-md w-[56px] h-[calc(100%-10px)] rounded-tr-[30px] rounded-br-[30px] mt-[5px] z-20 active:scale-[0.98] transition-transform"
@@ -111,6 +111,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
         >
           {open && (
             <>
+              {/* WORKSPACE HEADER */}
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2 min-w-0">
                   <Image
@@ -123,20 +124,24 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                     {workspaceName}
                   </h2>
                 </div>
-                <button
-                  className="cursor-pointer rounded-full p-1 hover:bg-gray-100"
-                  aria-label="Workspace umbenennen"
-                  onClick={handleRenameWorkspace}
-                >
-                  <Image
-                    src="/16. edit_square (1).png"
-                    alt="Bearbeiten"
-                    width={24}
-                    height={24}
-                  />
-                </button>
+
+                {!user?.isGuest && (
+                  <button
+                    className="cursor-pointer rounded-full p-1 hover:bg-gray-100"
+                    aria-label="Workspace umbenennen"
+                    onClick={() => setRenameOpen(true)}
+                  >
+                    <Image
+                      src="/16. edit_square (1).png"
+                      alt="Bearbeiten"
+                      width={24}
+                      height={24}
+                    />
+                  </button>
+                )}
               </div>
 
+              {/* CHANNELS */}
               <div
                 role="button"
                 tabIndex={0}
@@ -164,10 +169,7 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
 
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowModal(true);
-                  }}
+                  onClick={() => setShowModal(true)}
                   className="cursor-pointer rounded-full p-1 hover:bg-gray-100"
                   aria-label="Channel hinzufügen"
                 >
@@ -218,78 +220,91 @@ export default function Sidebar({ open = true, onToggle }: SidebarProps) {
                 </li>
               </ul>
 
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => setDmsOpen((v) => !v)}
-                onKeyDown={(e) => onHeaderKey(e, () => setDmsOpen((v) => !v))}
-                className="w-full flex items-center gap-2 mb-2 cursor-pointer select-none"
-                aria-expanded={dmsOpen}
-                aria-controls="sidebar-dms"
-              >
-                <Image
-                  src="/arrow_drop_down.png"
-                  alt=""
-                  width={20}
-                  height={20}
-                  className={`transition-transform ${
-                    dmsOpen ? "rotate-0" : "-rotate-90"
-                  }`}
-                />
-                <Image
-                  src="/account_circle.png"
-                  alt=""
-                  width={20}
-                  height={20}
-                />
-                <span className="font-bold text-[16px]">Direktnachrichten</span>
-              </div>
+              {/* DIRECT MESSAGES (nur für echte Nutzer sichtbar) */}
+              {!user?.isGuest && (
+                <>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setDmsOpen((v) => !v)}
+                    onKeyDown={(e) =>
+                      onHeaderKey(e, () => setDmsOpen((v) => !v))
+                    }
+                    className="w-full flex items-center gap-2 mb-2 cursor-pointer select-none"
+                    aria-expanded={dmsOpen}
+                    aria-controls="sidebar-dms"
+                  >
+                    <Image
+                      src="/arrow_drop_down.png"
+                      alt=""
+                      width={20}
+                      height={20}
+                      className={`transition-transform ${
+                        dmsOpen ? "rotate-0" : "-rotate-90"
+                      }`}
+                    />
+                    <Image
+                      src="/account_circle.png"
+                      alt=""
+                      width={20}
+                      height={20}
+                    />
+                    <span className="font-bold text-[16px]">
+                      Direktnachrichten
+                    </span>
+                  </div>
 
-              <ul
-                id="sidebar-dms"
-                className={`space-y-2 transition-[max-height,opacity] duration-300 ease-in-out ${
-                  dmsOpen ? "opacity-100" : "opacity-0"
-                }`}
-                style={{ maxHeight: dmsOpen ? 500 : 0, overflow: "hidden" }}
-              >
-                {dmList.map((t) => {
-                  const active = activeDMUserId === t.otherUserId;
-                  const unread = unreadCounts[t.otherUserId] || 0;
+                  <ul
+                    id="sidebar-dms"
+                    className={`space-y-2 transition-[max-height,opacity] duration-300 ease-in-out ${
+                      dmsOpen ? "opacity-100" : "opacity-0"
+                    }`}
+                    style={{
+                      maxHeight: dmsOpen ? 500 : 0,
+                      overflow: "hidden",
+                    }}
+                  >
+                    {dmList.map((t) => {
+                      const active = activeDMUserId === t.otherUserId;
+                      const unread = unreadCounts[t.otherUserId] || 0;
 
-                  return (
-                    <li key={t.convId}>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenDM(t.otherUserId)}
-                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left cursor-pointer transition ${
-                          active
-                            ? "bg-[#EEF0FF] text-[#5D5FEF]"
-                            : "hover:bg-gray-100 text-gray-800"
-                        }`}
-                        title={t.otherName}
-                      >
-                        <div className="relative shrink-0">
-                          <Image
-                            src={t.otherAvatar || "/avatar1.png"}
-                            alt={t.otherName}
-                            width={24}
-                            height={24}
-                            className="rounded-full"
-                          />
-                          {unread > 0 && (
-                            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#5D5FEF] text-white text-[11px] leading-[18px] text-center">
-                              {unread}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="truncate">{t.otherName}</div>
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                      return (
+                        <li key={t.convId}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDM(t.otherUserId)}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left cursor-pointer transition ${
+                              active
+                                ? "bg-[#EEF0FF] text-[#5D5FEF]"
+                                : "hover:bg-gray-100 text-gray-800"
+                            }`}
+                            title={t.otherName}
+                          >
+                            <div className="relative shrink-0">
+                              <Image
+                                src={t.otherAvatar || "/avatar1.png"}
+                                alt={t.otherName}
+                                width={24}
+                                height={24}
+                                className="rounded-full"
+                              />
+                              {unread > 0 && (
+                                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#5D5FEF] text-white text-[11px] leading-[18px] text-center">
+                                  {unread}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="truncate">{t.otherName}</div>
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
             </>
           )}
         </aside>
