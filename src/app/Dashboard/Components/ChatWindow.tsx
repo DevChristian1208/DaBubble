@@ -30,6 +30,11 @@ type GuestUserDb = {
   createdAt?: number;
 };
 
+type UserDataMap =
+  | Record<string, NewUserDb>
+  | Record<string, GuestUserDb>
+  | Record<string, never>;
+
 export default function ChatWindow() {
   const {
     activeChannel,
@@ -76,11 +81,8 @@ export default function ChatWindow() {
           return;
         }
 
-        /** 🔥 KORREKTE TYPEN STATT any */
-        let userData:
-          | Record<string, NewUserDb>
-          | Record<string, GuestUserDb>
-          | {} = {};
+        /** 🔥 TYPENSICHER OHNE any UND OHNE {} */
+        let userData: UserDataMap = {};
 
         if (me?.isGuest) {
           const gSnap = await get(ref(db, "guestUsers"));
@@ -89,6 +91,8 @@ export default function ChatWindow() {
           const nSnap = await get(ref(db, "newusers"));
           userData = (nSnap.val() as Record<string, NewUserDb> | null) || {};
         }
+
+        const map = userData as Record<string, GuestUserDb | NewUserDb>;
 
         const arr: Member[] = [];
 
@@ -103,14 +107,27 @@ export default function ChatWindow() {
             continue;
           }
 
-          const u = (userData as Record<string, GuestUserDb | NewUserDb>)[uid];
+          const u = map[uid];
 
           if (u) {
+            const name =
+              "newname" in u
+                ? u.newname
+                : "name" in u
+                ? (u as GuestUserDb).newname
+                : "Unbekannt";
+
+            const email =
+              "newemail" in u
+                ? u.newemail
+                : "email" in u
+                ? (u as GuestUserDb).newemail
+                : "";
+
             arr.push({
               id: uid,
-              name:
-                ("newname" in u ? u.newname : (u as any).name) || "Unbekannt",
-              email: ("newemail" in u ? u.newemail : (u as any).email) || "",
+              name: name || "Unbekannt",
+              email,
               avatar: u.avatar || "/avatar1.png",
             });
           } else {
@@ -124,6 +141,7 @@ export default function ChatWindow() {
         }
 
         arr.sort((a, b) => a.name.localeCompare(b.name));
+
         if (alive) setMembers(arr);
       } catch (e) {
         console.error("[ChatWindow] Mitglieder laden fehlgeschlagen:", e);
@@ -144,8 +162,10 @@ export default function ChatWindow() {
     me?.isGuest,
   ]);
 
+  /* AVATARS */
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
 
+  /* DM-Nachrichten in ChannelMessage konvertieren */
   const dmMessagesNormalized: ChannelMessage[] = useMemo(() => {
     return dmMessages.map(
       (m): ChannelMessage => ({
@@ -158,7 +178,7 @@ export default function ChatWindow() {
   }, [dmMessages]);
 
   /* -------------------------------------------------------
-   * PRIVATCHAT
+   * DIRECT MESSAGES VIEW
    * ----------------------------------------------------- */
   if (activeDMUserId && activeDMUser) {
     return (
@@ -204,7 +224,7 @@ export default function ChatWindow() {
   }
 
   /* -------------------------------------------------------
-   * CHANNEL CHAT
+   * CHANNEL CHAT VIEW
    * ----------------------------------------------------- */
   if (activeChannel) {
     return (
@@ -282,7 +302,7 @@ export default function ChatWindow() {
   }
 
   /* -------------------------------------------------------
-   * FALLBACK
+   * FALLBACK SCREEN
    * ----------------------------------------------------- */
   return (
     <div className="flex-1 h-full bg-white rounded-[20px] p-8 sm:p-10 shadow-sm flex items-center justify-center text-center overflow-hidden">
