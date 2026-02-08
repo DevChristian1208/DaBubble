@@ -113,9 +113,6 @@ export default function Login() {
     }
   }
 
-  // --------------------------
-  // GÄSTE LOGIN
-  // --------------------------
   async function handleGuestLogin() {
     const guestId = "guest_" + crypto.randomUUID();
 
@@ -215,17 +212,6 @@ export default function Login() {
               <div className="h-px bg-gray-300 w-full" />
             </div>
 
-            <button
-              type="button"
-              className="w-full inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 bg-white px-5 py-3 text-base font-medium text-gray-700 hover:bg-gray-50"
-              onClick={() =>
-                alert("Google-Login ist noch nicht implementiert.")
-              }
-            >
-              <Image src="/Google.png" alt="Google" width={20} height={20} />
-              <span>Anmelden mit Google</span>
-            </button>
-
             <div className="flex justify-center gap-2">
               <button
                 type="submit"
@@ -234,8 +220,6 @@ export default function Login() {
               >
                 {loading ? "Anmelden..." : "Anmelden"}
               </button>
-
-              {/* ---------- GÄSTE LOGIN BUTTON ---------- */}
               <button
                 type="button"
                 onClick={handleGuestLogin}
