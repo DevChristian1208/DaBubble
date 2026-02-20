@@ -56,9 +56,6 @@ export default function ChatWindow() {
   const [members, setMembers] = useState<Member[]>([]);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  /* -------------------------------------------------------
-   * MITGLIEDER LADEN
-   * ----------------------------------------------------- */
   useEffect(() => {
     let alive = true;
 
@@ -81,7 +78,6 @@ export default function ChatWindow() {
           return;
         }
 
-        /** 🔥 TYPENSICHER OHNE any UND OHNE {} */
         let userData: UserDataMap = {};
 
         if (me?.isGuest) {
@@ -162,10 +158,8 @@ export default function ChatWindow() {
     me?.isGuest,
   ]);
 
-  /* AVATARS */
   const topAvatars = useMemo(() => members.slice(0, 4), [members]);
 
-  /* DM-Nachrichten in ChannelMessage konvertieren */
   const dmMessagesNormalized: ChannelMessage[] = useMemo(() => {
     return dmMessages.map(
       (m): ChannelMessage => ({
@@ -177,9 +171,6 @@ export default function ChatWindow() {
     );
   }, [dmMessages]);
 
-  /* -------------------------------------------------------
-   * DIRECT MESSAGES VIEW
-   * ----------------------------------------------------- */
   if (activeDMUserId && activeDMUser) {
     return (
       <div className="flex-1 min-h-0 h-full bg-white rounded-[20px] shadow-sm flex flex-col overflow-hidden">
@@ -223,9 +214,6 @@ export default function ChatWindow() {
     );
   }
 
-  /* -------------------------------------------------------
-   * CHANNEL CHAT VIEW
-   * ----------------------------------------------------- */
   if (activeChannel) {
     return (
       <>
@@ -301,9 +289,6 @@ export default function ChatWindow() {
     );
   }
 
-  /* -------------------------------------------------------
-   * FALLBACK SCREEN
-   * ----------------------------------------------------- */
   return (
     <div className="flex-1 h-full bg-white rounded-[20px] p-8 sm:p-10 shadow-sm flex items-center justify-center text-center overflow-hidden">
       <div>
