@@ -32,19 +32,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Wird aufgerufen wenn Auth-Status sich ändert
     const unsub = onAuthStateChanged(
       auth,
       async (authUser: FirebaseUser | null) => {
         if (!authUser) {
-          // Kein eingeloggter Nutzer → evtl. Gast
           setUser(null);
           setLoading(false);
           return;
         }
 
         try {
-          // Prüfen, ob User ein REGISTRIERTER Nutzer ist
           const newUserSnap = await get(ref(db, `newusers/${authUser.uid}`));
 
           if (newUserSnap.exists()) {
@@ -63,7 +60,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          // Falls NICHT bei newusers → prüfen ob Gast-User
           const guestSnap = await get(ref(db, `guestUsers/${authUser.uid}`));
 
           if (guestSnap.exists()) {
@@ -82,7 +78,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          // Fallback: User ist registriert, aber DB-Eintrag fehlt
           const fallbackUser: User = {
             id: authUser.uid,
             name: authUser.email || "Nutzer",
