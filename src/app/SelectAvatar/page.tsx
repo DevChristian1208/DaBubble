@@ -93,7 +93,7 @@ export default function SelectAvatar() {
   return (
     <div className="min-h-screen bg-[#E8E9FF] px-4 pt-6 relative overflow-x-hidden">
       <div className="absolute top-6 left-6 flex items-center gap-2">
-        <Image src="/logo.png" alt="Logo" width={30} height={30} />
+        <Image src="/Logo.png" alt="Logo" width={30} height={30} />
         <span className="text-lg font-bold text-gray-800">DABubble</span>
       </div>
 
