@@ -28,7 +28,6 @@ export default function Sidebar({
   const { user } = useUser();
   const { channels, activeChannelId, setActiveChannelId } = useChannel();
 
-  // ❗ DirectContext reagiert automatisch für Gäste → zeigt einfach leere DM-Liste
   const {
     dmThreads = [],
     startDMWith,
@@ -37,7 +36,6 @@ export default function Sidebar({
     unreadCounts,
   } = useDirect();
 
-  // Workspace Name laden
   useEffect(() => {
     const r = ref(db, "workspace/name");
     const unsub = onValue(r, (snap) => {
@@ -61,7 +59,6 @@ export default function Sidebar({
   };
 
   const handleOpenDM = (otherUserId: string) => {
-    // 🚫 Gäste können keine DMs öffnen
     if (user?.isGuest) {
       alert("Dieses Feature ist nur für registrierte Nutzer verfügbar.");
       return;
@@ -111,7 +108,6 @@ export default function Sidebar({
         >
           {open && (
             <>
-              {/* WORKSPACE HEADER */}
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2 min-w-0">
                   <Image
@@ -141,7 +137,6 @@ export default function Sidebar({
                 )}
               </div>
 
-              {/* CHANNELS */}
               <div
                 role="button"
                 tabIndex={0}
@@ -220,7 +215,6 @@ export default function Sidebar({
                 </li>
               </ul>
 
-              {/* DIRECT MESSAGES (nur für echte Nutzer sichtbar) */}
               {!user?.isGuest && (
                 <>
                   <div
