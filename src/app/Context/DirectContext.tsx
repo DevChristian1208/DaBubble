@@ -25,9 +25,6 @@ import {
 import { db } from "@/app/lib/firebase";
 import { useUser } from "./UserContext";
 
-/* -----------------------------------------
- * TYPES
- * ---------------------------------------*/
 export type ChatMessage = {
   id: string;
   text: string;
@@ -51,7 +48,6 @@ export type DMThread = {
   lastReadAt?: number;
 };
 
-// meta in db: dmThreads/<uid>/<otherUid>
 type DMThreadMeta = {
   otherName?: string;
   otherAvatar?: string;
@@ -59,10 +55,7 @@ type DMThreadMeta = {
   lastReadAt?: number;
 };
 
-// entire thread list for one user
 type DMThreadsDb = Record<string, DMThreadMeta>;
-
-// directMessages/<convId>
 type DirectMessagesDb = Record<string, DMDbMessage>;
 
 type DirectContextType = {
@@ -115,9 +108,6 @@ export function DirectProvider({ children }: { children: ReactNode }) {
   const isGuest = user?.isGuest === true;
   const dmDisabled = isGuest || !user?.id;
 
-  /* -----------------------------------------
-   * THREADS LADEN
-   * ---------------------------------------*/
   useEffect(() => {
     if (messagesRef.current) {
       off(messagesRef.current);
@@ -164,9 +154,6 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     };
   }, [user?.id, dmDisabled]);
 
-  /* -----------------------------------------
-   * UNREAD COUNTS
-   * ---------------------------------------*/
   const unreadListeners = useRef<Record<string, () => void>>({});
   useEffect(() => {
     Object.values(unreadListeners.current).forEach((fn) => fn?.());
@@ -211,10 +198,7 @@ export function DirectProvider({ children }: { children: ReactNode }) {
       unreadListeners.current = {};
     };
   }, [dmThreads, user?.id, dmDisabled]);
-
-  /* -----------------------------------------
-   * DM NACHRICHTEN LADEN
-   * ---------------------------------------*/
+  
   useEffect(() => {
     if (messagesRef.current) {
       off(messagesRef.current);
@@ -261,9 +245,6 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     };
   }, [activeDMUserId, user?.id, dmDisabled]);
 
-  /* -----------------------------------------
-   * START DM
-   * ---------------------------------------*/
   const startDMWith = useCallback(
     async (otherUserId: string) => {
       if (dmDisabled) {
@@ -306,9 +287,6 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     [user, dmDisabled]
   );
 
-  /* -----------------------------------------
-   * SEND MESSAGE
-   * ---------------------------------------*/
   const sendDirectMessage = useCallback(
     async (text: string) => {
       if (dmDisabled) {
@@ -378,9 +356,6 @@ export function DirectProvider({ children }: { children: ReactNode }) {
     [user, activeDMUserId, activeDMUser, dmDisabled]
   );
 
-  /* -----------------------------------------
-   * CLEAR DM
-   * ---------------------------------------*/
   const clearDM = useCallback(() => {
     setActiveDMUserId(null);
     setActiveDMUser(null);
