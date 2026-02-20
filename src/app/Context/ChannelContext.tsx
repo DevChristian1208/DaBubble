@@ -14,10 +14,6 @@ import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "@/app/lib/firebase";
 import { useUser } from "./UserContext";
 
-// ---------------------------------------------------
-// TYPES
-// ---------------------------------------------------
-
 type ChannelDb = {
   name?: string;
   description?: string;
@@ -63,7 +59,6 @@ type ChannelContextType = {
   basePath: string;
 };
 
-// Registered user type
 type NewUserDb = {
   authUid: string;
   newname: string;
@@ -71,7 +66,6 @@ type NewUserDb = {
   avatar: string;
 };
 
-// Guest user type
 type GuestUserDb = {
   id: string;
   newname: string;
@@ -83,9 +77,6 @@ type GuestUserDb = {
 
 const ChannelContext = createContext<ChannelContextType | undefined>(undefined);
 
-// ---------------------------------------------------
-// Warten bis Auth bereit ist
-// ---------------------------------------------------
 function useAuthReady() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -95,9 +86,6 @@ function useAuthReady() {
   return ready;
 }
 
-// ---------------------------------------------------
-// PROVIDER
-// ---------------------------------------------------
 export function ChannelProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
   const authReady = useAuthReady();
@@ -110,9 +98,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // -------------------------------------------------------
-  //  Auto-Member: Nutzer in alle Channels hinzufügen
-  // -------------------------------------------------------
   const ensureUserInAllChannels = useCallback(async () => {
     if (!user?.id) return;
 
@@ -145,9 +130,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     }
   }, [authReady, user?.id, ensureUserInAllChannels]);
 
-  // ---------------------------------------------------
-  // CHANNELS LADEN
-  // ---------------------------------------------------
   useEffect(() => {
     if (!authReady || !user?.id) return;
 
@@ -183,9 +165,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     [channels, activeChannelId]
   );
 
-  // ---------------------------------------------------
-  // CHANNEL-MESSAGES LADEN
-  // ---------------------------------------------------
   useEffect(() => {
     setMessages([]);
     if (!activeChannelId || !user?.id) return;
@@ -214,17 +193,11 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     return () => unsub();
   }, [activeChannelId, user?.id, basePath]);
 
-  // ---------------------------------------------------
-  // UID bestimmen
-  // ---------------------------------------------------
   const resolveUid = () => {
     if (user?.isGuest) return user.id;
     return auth.currentUser?.uid || null;
   };
-
-  // ---------------------------------------------------
-  // CHANNEL ERSTELLEN
-  // ---------------------------------------------------
+  
   const createChannel = async (name: string, description?: string) => {
     setLoading(true);
     setError(null);
@@ -248,9 +221,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
         members: { [uid]: true },
       });
 
-      // --------------------------
-      // Alle Mitglieder automatisch
-      // --------------------------
       if (user?.isGuest) {
         const allGuestsSnap = await get(ref(db, "guestUsers"));
         const allGuests =
@@ -287,9 +257,6 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // ---------------------------------------------------
-  // MESSAGE SENDEN
-  // ---------------------------------------------------
   const sendMessage = async (text: string) => {
     const uid = resolveUid();
     if (!uid) throw new Error("Nicht eingeloggt.");
